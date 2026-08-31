@@ -167,11 +167,11 @@ If I start or resume another task:
 
 ## 3.7 View history
 
-I can see completed tasks by date.
+I can see completed logical tasks grouped by their stable task identity and ordered by recent activity.
 
-I can inspect how much time was spent on each task.
+I can inspect combined totals for each logical task and open its session log to audit every underlying completed session.
 
-I can select completed records for Excel export and use native context-menu actions to continue tracking, rename, or delete a History record.
+I can select logical History tasks for Excel export and use native context-menu actions to continue tracking, rename, view the session log, or delete a History group.
 
 ## 3.8 Restore after restart
 
@@ -340,6 +340,7 @@ Recommended model:
 ```swift
 struct TaskSession: Identifiable, Codable {
     let id: UUID
+    var taskGroupID: UUID
     var name: String
     var category: String?
     var status: TaskStatus
@@ -571,6 +572,9 @@ Save:
 - stores task in history
 - marks task completed
 - removes it from active task list
+- preserves the session as an independent record
+- adds its duration to the existing logical History group when another completed session has the same `taskGroupID`
+- does not create a second top-level History row for a continued task
 
 Discard:
 
@@ -580,40 +584,42 @@ Discard:
 
 # 4.14 History
 
-History view should include:
+History is grouped by logical task rather than by individual completed session.
 
-| Task | Date | Duration |
-|---|---|---|
-| Client report | Aug 31 | 1h 23m |
-| Email replies | Aug 31 | 32m |
-| Data analysis | Aug 30 | 2h 14m |
+The main History list shows one row per `taskGroupID`:
 
-Opening a record shows:
+| Task Name | Last Activity Date | Total Active Duration | Total Paused Duration | Session Count |
+|---|---|---:|---:|---:|
+| Prepare proposal | Aug 31 | 1h 55m | 5m | 2 |
+| Data analysis | Aug 31 | 3h 12m | 18m | 4 |
 
-- Task name
-- Category
-- Created time
-- Start time
-- Finish time
-- Active time
-- Paused time
-- Total elapsed time
+Aggregate rules:
+
+- group only by `taskGroupID`
+- never merge sessions merely because their task names are equal
+- Total Active Duration is the sum of completed sessions in the group
+- Total Paused Duration is the sum of completed sessions in the group
+- Last Activity Date comes from the most recent completed session
+- Session Count is the number of completed sessions in the group
+- every underlying session remains stored independently with its own ID and timestamps
+
+Opening a grouped row should show its logical summary and provide access to the complete session log.
 
 ---
 
 ## 4.14.1 History Selection and Excel Export
 
-History must support selecting one or multiple completed task records.
+History must support selecting one or multiple logical task groups.
 
 Selection behavior:
 
-- single click selects one History record
-- Command-click adds or removes records from the selection
+- single click selects one History group
+- Command-click adds or removes groups from the selection
 - Shift-click selects a range where appropriate
 - selection uses native macOS visual treatment
-- `Export Selected` is disabled when no History record is selected
+- `Export Selected` is disabled when no History group is selected
 
-The user can export only the selected History records.
+The user can export only the selected History groups and their underlying sessions.
 
 Primary export format:
 
@@ -625,18 +631,30 @@ Optional secondary export format:
 
 Use the standard macOS save workflow so the user chooses the destination. Export data must remain local and must not be uploaded to a cloud service.
 
-Exported columns:
+The preferred workbook contains two worksheets.
+
+Worksheet 1: `Tasks`
 
 - Task Name
+- Last Activity Date
+- Total Active Duration
+- Total Paused Duration
+- Session Count
+- Task Group ID
+
+Worksheet 2: `Sessions`
+
+- Task Name
+- Task Group ID
+- Session ID
+- Continued From Session ID, if available
 - Date
 - Start Time
 - End Time
 - Active Duration
 - Paused Duration
-- Total Elapsed Duration
-- Category, if available
-- Session ID
-- Continued From Session ID, if available
+
+The `Tasks` worksheet contains one row per selected logical group. The `Sessions` worksheet contains every completed session belonging to those selected groups and no sessions from unselected groups.
 
 The exported file must open directly in:
 
@@ -649,7 +667,7 @@ For `.xlsx` export:
 - include a header row
 - use sensible column widths where practical
 - use human-readable date, time, and duration values
-- preserve raw session identifiers for traceability
+- preserve raw task-group, session, and direct-lineage identifiers for traceability
 
 Large selections should be exported away from the main UI path where practical so export work does not unnecessarily block interaction.
 
@@ -657,61 +675,115 @@ Large selections should be exported away from the main UI path where practical s
 
 ## 4.14.2 History Context Menu
 
-Every completed History record must provide a native macOS right-click context menu with:
+Every logical History group must provide a native macOS right-click context menu with:
 
 - Continue Tracking
 - Rename
+- View Log
 - Delete
 
 Double-clicking or using an explicit Open action should show History detail.
 
 ### Continue Tracking
 
-Continue Tracking resumes the user's work conceptually without mutating historical evidence.
+Continue Tracking resumes the logical task without mutating historical evidence.
 
-The original completed record is immutable with respect to timing and completion state. Do not convert it back into a running task.
+All original completed sessions are immutable with respect to timing and completion state. Do not convert any completed session back into a running task.
 
 Instead:
 
-1. Keep the original completed History record unchanged.
-2. Create a new active `TaskSession` with its own UUID.
-3. Inherit the previous task name and category where available.
-4. Set `continuedFromSessionID` to the original completed session ID.
-5. Initialize the new session's accumulated active duration from the previous session's accumulated active duration.
-6. Preserve the relationship for export, detail views, and future analytics.
+1. Resolve the selected History group's `taskGroupID`.
+2. Find the most recent completed session in that group.
+3. Keep every completed session unchanged.
+4. Create a new active `TaskSession` with its own UUID.
+5. Assign the same `taskGroupID`.
+6. Set `continuedFromSessionID` to the most recent completed session's ID.
+7. Inherit the logical task name and category where available.
+8. Display the logical group's completed active total plus the new session's independently calculated duration.
+9. Preserve group identity and direct lineage for export, View Log, detail views, and future analytics.
 
 Example:
 
 ```text
-Original History
+Logical History Group
 Prepare proposal
-Active Duration: 01:20:00
-Status: completed
+Completed Active Total: 01:20:00
+Sessions: 1
 
 Continued Session
 Prepare proposal
 Initial displayed active duration: 01:20:00
-continuedFromSessionID: <original session ID>
+taskGroupID: <same group ID>
+continuedFromSessionID: <latest completed session ID>
 ```
+
+The displayed group total must not be written into the new session as if it were newly recorded time. The new session stores only its own active and paused durations so aggregate totals do not double count earlier sessions.
 
 Continue Tracking must not:
 
 - pause other running tasks
 - reset or modify other tasks
-- mutate or delete the original completed record
-- modify unrelated History records
+- mutate or delete any existing completed session in the group
+- modify unrelated History groups or their sessions
 
-Multiple continued sessions from the same completed record are allowed. Each continued session retains a unique UUID and the same lineage reference.
+Multiple continued sessions from the same logical group are allowed. Each new session receives a unique UUID, inherits the same `taskGroupID`, and points directly to the latest completed session at the moment it is created.
+
+When a continued session finishes:
+
+- persist it as another independent completed session
+- preserve its `taskGroupID`
+- recompute the group's aggregate totals
+- keep one top-level History row for the group
+- do not modify any other active or running task
 
 ### Rename
 
-Rename edits only the completed record's display name.
+Rename changes the logical History group's display name.
 
 Requirements:
 
-- persist the name change immediately
+- persist the name change immediately across every session with the same `taskGroupID`, unless a separate persisted group-level display-name model is introduced
 - support duplicate names
-- do not modify timestamps, durations, status, session ID, or continuation lineage
+- future continued sessions inherit the renamed value
+- do not modify timestamps, durations, statuses, session IDs, group IDs, or continuation lineage
+- never merge renamed groups merely because their names become equal
+
+### View Log
+
+View Log displays every individual completed session belonging to the selected `taskGroupID`, sorted chronologically.
+
+Recommended fields:
+
+- Session number
+- Date
+- Start Time
+- End Time
+- Active Duration
+- Paused Duration
+- Status
+- Session ID
+- Continued From Session ID, where available
+
+The log should also show the logical task name, total active duration, total paused duration, and session count. Individual session deletion from View Log is a future enhancement and is not required for MVP.
+
+Example:
+
+```text
+Prepare proposal
+Total Active Time: 01:55:00
+
+Session 1
+Aug 31
+09:10 → 10:30
+Active: 01:20:00
+Paused: 00:05:00
+
+Session 2
+Aug 31
+14:00 → 14:35
+Active: 00:35:00
+Paused: 00:00:00
+```
 
 ### Delete
 
@@ -719,35 +791,50 @@ Delete requires confirmation.
 
 Recommended dialog:
 
-`Delete this history record?`
+`Delete all history for "Prepare proposal"?`
+
+Supporting text:
+
+`This will permanently delete X recorded sessions.`
 
 Actions:
 
 - Cancel
-- Delete
+- Delete All
 
 Deletion may be permanent in the MVP. A Trash system is not required.
 
-Deleting a History record must:
+Deleting a History group must:
 
-- remove only the selected completed record
+- remove every completed session with the selected `taskGroupID`
 - persist immediately
 - not affect active or running tasks
-- not affect other completed records
+- not affect other History groups
+
+If an active task already belongs to the same `taskGroupID`, deleting completed History must not delete, pause, reset, or otherwise mutate that active task.
 
 ---
 
 ## 4.14.3 Continued Task Data Model
 
-Add the following optional field to `TaskSession` and its persisted representation:
+Add the following fields to `TaskSession` and its persisted representation:
 
 ```swift
+var taskGroupID: UUID
 var continuedFromSessionID: UUID?
 ```
 
-Every session keeps its own unique `id`. Continuing a task must never replace or reuse the original completed session ID.
+Every brand-new task receives a new `taskGroupID`. Every continued session inherits the same `taskGroupID`, while every session keeps its own unique `id`. Continuing a task must never replace or reuse a completed session ID.
 
-The lineage field supports traceability, export, History detail, and future analytics without changing the original History record.
+History grouping must use `taskGroupID`; task name is never a grouping key. `continuedFromSessionID` remains the direct lineage link between sessions.
+
+Legacy records that predate `taskGroupID` must be migrated without data loss:
+
+- assign a stable generated `taskGroupID` to each legacy session
+- persist the assigned value so it remains stable across relaunches
+- do not merge unrelated legacy records by name
+- where trustworthy existing continuation lineage allows a chain to be reconstructed, sessions in that chain may receive the same generated group ID
+- if lineage is missing or ambiguous, preserve records by placing each legacy session in its own group
 
 ---
 
@@ -755,11 +842,11 @@ The lineage field supports traceability, export, History detail, and future anal
 
 Recommended native macOS interactions:
 
-- single click: select one History record
+- single click: select one History group
 - Command-click: multi-select
 - Shift-click: range select where appropriate
 - right-click: open the History context menu
-- double-click or Open: show History detail
+- double-click or Open: show grouped History detail or View Log
 
 History selection should use native macOS list or table behavior and remain visually distinct in Light and Dark Mode.
 
@@ -916,6 +1003,7 @@ Persist:
 
 - tasks
 - completed sessions
+- stable task-group identity for every session
 - continuation lineage between sessions
 - settings
 - active task ID
@@ -991,7 +1079,7 @@ Optional secondary format:
 
 - CSV `.csv`
 
-Only selected completed History records are exported. Follow the selection, workbook, columns, privacy, performance, and standard macOS save requirements in section 4.14.1.
+Only selected logical History groups are exported. The `Tasks` worksheet contains grouped totals, and the `Sessions` worksheet preserves all underlying completed sessions for those groups. Follow the selection, workbook, privacy, performance, and standard macOS save requirements in section 4.14.1.
 
 ---
 
@@ -1108,9 +1196,9 @@ FloatingTaskTimer/
     └── DurationFormatterTests.swift
 ```
 
-`ExportService` should own workbook/CSV generation and file-writing coordination. History views should provide selected session IDs and user intent rather than constructing export files directly.
+`ExportService` should own workbook/CSV generation and file-writing coordination. History views should provide selected task-group IDs and user intent rather than constructing export files directly.
 
-`TaskStore` or a dedicated History service should own Continue Tracking, Rename, Delete, and completed-record persistence coordination.
+`TaskStore` or a dedicated History service should own grouping, aggregate calculation, Continue Tracking, grouped Rename, View Log retrieval, grouped Delete, and completed-session persistence coordination.
 
 ---
 
@@ -1225,6 +1313,7 @@ Recommended persisted entities:
 ## TaskSession
 
 - id
+- taskGroupID
 - name
 - category
 - status
@@ -1330,10 +1419,18 @@ Test:
 - completing a task
 - deleting a task
 - schema migration
-- History multi-selection and selected-record export
-- Continue Tracking preserves the original completed record
-- History rename changes only the name
-- History delete affects only the chosen completed record
+- History group multi-selection and selected-group export
+- brand-new tasks receive distinct stable task-group IDs
+- legacy sessions receive stable migrated group IDs without name-based accidental merging
+- Continue Tracking preserves every original completed session and inherits the group ID
+- direct continuation lineage points to the latest completed session
+- completing a continued session updates one grouped History row without collapsing underlying sessions
+- grouped active and paused totals equal the sum of their completed sessions without double counting
+- History rename updates the whole logical group without changing timing or identity fields
+- History View Log returns every group session in chronological order
+- History delete affects only the chosen logical group and preserves active tasks
+- selected-group export includes only the chosen groups and their underlying sessions
+- `Tasks` and `Sessions` worksheets contain consistent group and session identifiers
 - `.xlsx` output is a valid workbook readable by Excel and Numbers
 
 ---
@@ -1347,13 +1444,15 @@ Core flows:
 3. Pause.
 4. Resume.
 5. Finish.
-6. Verify history item.
-7. Multi-select History records and export the selection.
-8. Continue Tracking from History and verify the original remains completed.
-9. Rename and delete History records through the context menu.
-10. Toggle Pin.
-11. Open menu bar.
-12. Switch active task.
+6. Verify the completed session appears in one grouped History row.
+7. Continue Tracking, finish again, and verify the row total and session count increase without creating another top-level row.
+8. Open View Log and verify every underlying session is present in chronological order.
+9. Multi-select History groups and export the selection; verify both `Tasks` and `Sessions` worksheets.
+10. Rename a group and verify all sessions and future continuations use the new display name.
+11. Delete a group and verify its completed sessions are removed without affecting active tasks.
+12. Toggle Pin.
+13. Open menu bar.
+14. Switch active task.
 
 ---
 
@@ -1389,7 +1488,7 @@ Version 1.0 MVP should contain only:
 9. Multiple simultaneously running tasks
 10. Independent task controls and active task selection
 11. History
-12. History selection, context actions, and Excel export
+12. Grouped History, session logs, selection, context actions, and two-worksheet Excel export
 13. Menu-bar timer
 14. local persistence
 15. accurate restart recovery
@@ -1621,11 +1720,15 @@ Commit:
 Implement:
 
 - native History multi-selection
-- Continue Tracking with immutable original records and session lineage
-- Rename
-- confirmed permanent Delete
-- selected-record Excel `.xlsx` export
-- optional selected-record CSV export
+- History grouping by stable `taskGroupID`
+- grouped active/paused totals and session counts
+- Continue Tracking with immutable original sessions, inherited group identity, and direct session lineage
+- grouped Rename
+- View Log for chronologically ordered underlying sessions
+- confirmed permanent Delete of a whole History group
+- selected-group Excel `.xlsx` export with `Tasks` and `Sessions` worksheets
+- preservation of every underlying completed session
+- optional selected-group CSV export that preserves group identity and session detail
 
 Commit:
 
@@ -1903,8 +2006,9 @@ Verify:
 - timer survives relaunch
 - menu bar works
 - history persists
+- continued tasks merge into one logical History row while preserving their session log
 - dark mode works
-- selected History export produces a valid `.xlsx` workbook
+- selected History export produces a valid `.xlsx` workbook with consistent `Tasks` and `Sessions` worksheets
 - sleep/wake behavior is correct
 - no debug logs expose task names
 - app icon displays correctly
@@ -2071,10 +2175,12 @@ The product is ready for beta when all of the following are true:
 - task switching works
 - multiple tasks can run simultaneously and independently
 - all running tasks recover accurately after relaunch
-- completed sessions appear in history
-- History supports native multi-selection and selection-only Excel export
-- History supports Continue Tracking without mutating the original completed record
-- History supports persisted Rename and confirmed Delete actions
+- completed sessions appear in History grouped by stable `taskGroupID`
+- equal task names with different group IDs remain separate
+- continued completed sessions update one logical row and remain independently auditable in View Log
+- History supports native group multi-selection and selection-only two-worksheet Excel export
+- History supports Continue Tracking without mutating or double-counting original completed sessions
+- History supports persisted group Rename, View Log, and confirmed whole-group Delete actions
 - menu bar shows current timer
 - no known data-loss bug exists
 - basic unit tests pass

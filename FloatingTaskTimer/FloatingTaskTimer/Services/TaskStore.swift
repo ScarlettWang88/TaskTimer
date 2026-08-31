@@ -6,7 +6,7 @@ import Observation
 final class TaskStore {
     private(set) var tasks: [TaskSession] = []
     private(set) var activeTaskID: UUID?
-    private(set) var lastCompletedTask: TaskSession?
+    private(set) var history: [TaskSession] = []
 
     @ObservationIgnored private let persistence: TaskSessionStore
     @ObservationIgnored private let timerEngine: TimerEngine
@@ -30,6 +30,16 @@ final class TaskStore {
 
     var otherTasks: [TaskSession] {
         tasks.filter { $0.id != activeTaskID }
+    }
+
+    var lastCompletedTask: TaskSession? {
+        history.first
+    }
+
+    var historyGroups: [HistoryGroup] {
+        Dictionary(grouping: history, by: \.taskGroupID)
+            .map { HistoryGroup(taskGroupID: $0.key, sessions: $0.value) }
+            .sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
     }
 
     @discardableResult
@@ -115,7 +125,8 @@ final class TaskStore {
         guard timerEngine.finish(&tasks[index]) else { return false }
 
         let completed = tasks.remove(at: index)
-        lastCompletedTask = completed
+        history.append(completed)
+        sortHistory()
         activeTaskID = preferredActiveTaskID()
         try persistAll(including: completed)
         return true
@@ -138,15 +149,103 @@ final class TaskStore {
         try persistence.save(tasks[index])
     }
 
+    func renameHistoryGroup(id taskGroupID: UUID, name: String) throws {
+        let updatedName = normalizedName(name)
+        var changedSessions: [TaskSession] = []
+        for index in history.indices where history[index].taskGroupID == taskGroupID {
+            history[index].name = updatedName
+            changedSessions.append(history[index])
+        }
+        for index in tasks.indices where tasks[index].taskGroupID == taskGroupID {
+            tasks[index].name = updatedName
+            changedSessions.append(tasks[index])
+        }
+        for session in changedSessions {
+            try persistence.save(session)
+        }
+    }
+
+    func deleteHistoryGroup(id taskGroupID: UUID) throws {
+        history.removeAll { $0.taskGroupID == taskGroupID }
+        try persistence.delete(taskGroupID: taskGroupID)
+    }
+
+    @discardableResult
+    func continueHistoryGroup(id taskGroupID: UUID) throws -> UUID? {
+        guard let original = history
+            .filter({ $0.taskGroupID == taskGroupID })
+            .max(by: { ($0.completedAt ?? .distantPast) < ($1.completedAt ?? .distantPast) })
+        else { return nil }
+
+        let continued = TaskSession(
+            taskGroupID: taskGroupID,
+            name: normalizedName(original.name),
+            category: original.category,
+            continuedFromSessionID: original.id
+        )
+        tasks.append(continued)
+        activeTaskID = continued.id
+        try persistAll()
+        return continued.id
+    }
+
+    func historyGroups(ids: Set<UUID>) -> [HistoryGroup] {
+        historyGroups.filter { ids.contains($0.taskGroupID) }
+    }
+
+    func exportSnapshot(groupIDs: Set<UUID>) -> HistoryExportSnapshot {
+        guard !groupIDs.isEmpty else { return HistoryExportSnapshot(groups: []) }
+
+        var selectedSessions: [UUID: [TaskSession]] = [:]
+        for session in history where groupIDs.contains(session.taskGroupID) {
+            selectedSessions[session.taskGroupID, default: []].append(session)
+        }
+
+        let groups = selectedSessions.map { taskGroupID, sessions in
+            let ordered = sessions.sorted {
+                ($0.completedAt ?? $0.createdAt) < ($1.completedAt ?? $1.createdAt)
+            }
+            let latest = ordered.last
+            return HistoryExportGroupSnapshot(
+                taskGroupID: taskGroupID,
+                name: latest?.name ?? "Untitled Task",
+                lastActivityAt: latest?.completedAt,
+                totalActiveDuration: ordered.reduce(0) { $0 + $1.accumulatedActiveDuration },
+                totalPausedDuration: ordered.reduce(0) { $0 + $1.accumulatedPausedDuration },
+                sessions: ordered.map {
+                    HistoryExportSessionSnapshot(
+                        taskGroupID: $0.taskGroupID,
+                        sessionID: $0.id,
+                        continuedFromSessionID: $0.continuedFromSessionID,
+                        name: $0.name,
+                        firstStartedAt: $0.firstStartedAt,
+                        completedAt: $0.completedAt,
+                        activeDuration: $0.accumulatedActiveDuration,
+                        pausedDuration: $0.accumulatedPausedDuration
+                    )
+                }
+            )
+        }.sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
+
+        return HistoryExportSnapshot(groups: groups)
+    }
+
+    func historySessions(taskGroupID: UUID) -> [TaskSession] {
+        historyGroups.first { $0.taskGroupID == taskGroupID }?.sessions ?? []
+    }
+
     func duration(for task: TaskSession) -> TimeInterval {
-        timerEngine.currentDuration(for: task)
+        let completedTotal = history.lazy
+            .filter { $0.taskGroupID == task.taskGroupID }
+            .reduce(0) { $0 + $1.accumulatedActiveDuration }
+        return completedTotal + timerEngine.currentDuration(for: task)
     }
 
     private func restore() throws {
         let collection = try persistence.load()
-        lastCompletedTask = collection.sessions
+        history = collection.sessions
             .filter { $0.status == .completed }
-            .max { ($0.completedAt ?? .distantPast) < ($1.completedAt ?? .distantPast) }
+        sortHistory()
         tasks = collection.sessions.filter { $0.status != .completed }
 
         let persistedActiveID = collection.activeTaskID
@@ -167,6 +266,12 @@ final class TaskStore {
 
     private func preferredActiveTaskID() -> UUID? {
         tasks.first(where: { $0.status == .running })?.id ?? tasks.first?.id
+    }
+
+    private func sortHistory() {
+        history.sort {
+            ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast)
+        }
     }
 
     private func persistAll(including additionalSession: TaskSession? = nil) throws {

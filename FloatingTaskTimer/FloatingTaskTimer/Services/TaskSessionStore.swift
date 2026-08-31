@@ -18,7 +18,7 @@ final class TaskSessionStore {
         let records = try fetchSessionRecords()
         var sessions: [TaskSession] = []
         var seenIDs = Set<UUID>()
-        var changed = false
+        var changed = migrateTaskGroupIDs(in: records)
 
         for record in records {
             guard let session = record.taskSession, seenIDs.insert(session.id).inserted else {
@@ -83,6 +83,14 @@ final class TaskSessionStore {
         try modelContext.save()
     }
 
+    func delete(taskGroupID: UUID) throws {
+        for record in try fetchSessionRecords()
+        where record.taskGroupID == taskGroupID && record.statusRawValue == TaskStatus.completed.rawValue {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
+
     func saveActiveTaskID(_ activeTaskID: UUID?) throws {
         try saveActiveTaskID(activeTaskID, savingContext: true)
     }
@@ -112,5 +120,36 @@ final class TaskSessionStore {
 
     private func fetchStateRecords() throws -> [PersistedTaskStoreState] {
         try modelContext.fetch(FetchDescriptor<PersistedTaskStoreState>())
+    }
+
+    private func migrateTaskGroupIDs(in records: [PersistedTaskSession]) -> Bool {
+        let recordsByID = Dictionary(uniqueKeysWithValues: records.map { ($0.sessionID, $0) })
+        var neighbors: [UUID: Set<UUID>] = [:]
+        for record in records {
+            guard let parentID = record.continuedFromSessionID, recordsByID[parentID] != nil else {
+                continue
+            }
+            neighbors[record.sessionID, default: []].insert(parentID)
+            neighbors[parentID, default: []].insert(record.sessionID)
+        }
+
+        var visited = Set<UUID>()
+        var changed = false
+        for record in records where !visited.contains(record.sessionID) {
+            var stack = [record.sessionID]
+            var component: [PersistedTaskSession] = []
+            while let id = stack.popLast() {
+                guard visited.insert(id).inserted, let member = recordsByID[id] else { continue }
+                component.append(member)
+                stack.append(contentsOf: neighbors[id, default: []])
+            }
+
+            let groupID = component.compactMap(\.taskGroupID).first ?? UUID()
+            for member in component where member.taskGroupID == nil {
+                member.taskGroupID = groupID
+                changed = true
+            }
+        }
+        return changed
     }
 }

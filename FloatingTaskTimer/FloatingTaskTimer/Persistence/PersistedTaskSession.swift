@@ -4,6 +4,7 @@ import SwiftData
 @Model
 final class PersistedTaskSession {
     var sessionID: UUID
+    var taskGroupID: UUID?
     var name: String
     var category: String?
     var statusRawValue: String
@@ -15,10 +16,12 @@ final class PersistedTaskSession {
     var accumulatedPausedDuration: TimeInterval
     var pauseStartedAt: Date?
     var activeIntervalsData: Data = Data()
+    var continuedFromSessionID: UUID?
     var updatedAt: Date
 
     init(session: TaskSession, updatedAt: Date = Date()) {
         sessionID = session.id
+        taskGroupID = session.taskGroupID
         name = session.name
         category = session.category
         statusRawValue = session.status.rawValue
@@ -30,6 +33,7 @@ final class PersistedTaskSession {
         accumulatedPausedDuration = session.accumulatedPausedDuration
         pauseStartedAt = session.pauseStartedAt
         activeIntervalsData = (try? JSONEncoder().encode(session.activeIntervals)) ?? Data()
+        continuedFromSessionID = session.continuedFromSessionID
         self.updatedAt = updatedAt
     }
 
@@ -52,6 +56,7 @@ final class PersistedTaskSession {
 
         return TaskSession(
             id: sessionID,
+            taskGroupID: taskGroupID ?? UUID(),
             name: name,
             category: category,
             status: status,
@@ -62,12 +67,14 @@ final class PersistedTaskSession {
             accumulatedActiveDuration: accumulatedActiveDuration,
             accumulatedPausedDuration: accumulatedPausedDuration,
             pauseStartedAt: pauseStartedAt,
-            activeIntervals: activeIntervals
+            activeIntervals: activeIntervals,
+            continuedFromSessionID: continuedFromSessionID
         )
     }
 
     func update(from session: TaskSession, at date: Date = Date()) {
         sessionID = session.id
+        taskGroupID = session.taskGroupID
         name = session.name
         category = session.category
         statusRawValue = session.status.rawValue
@@ -79,6 +86,7 @@ final class PersistedTaskSession {
         accumulatedPausedDuration = session.accumulatedPausedDuration
         pauseStartedAt = session.pauseStartedAt
         activeIntervalsData = (try? JSONEncoder().encode(session.activeIntervals)) ?? Data()
+        continuedFromSessionID = session.continuedFromSessionID
         updatedAt = date
     }
 
@@ -91,7 +99,7 @@ final class PersistedTaskSession {
         case .paused:
             return firstStartedAt != nil && pauseStartedAt != nil
         case .completed:
-            return firstStartedAt != nil && completedAt != nil
+            return completedAt != nil
         }
     }
 }

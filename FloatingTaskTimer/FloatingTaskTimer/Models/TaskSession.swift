@@ -1,7 +1,8 @@
 import Foundation
 
-struct TaskSession: Identifiable, Codable, Equatable {
+struct TaskSession: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
+    var taskGroupID: UUID
     var name: String
     var category: String?
     var status: TaskStatus
@@ -15,9 +16,11 @@ struct TaskSession: Identifiable, Codable, Equatable {
     var accumulatedPausedDuration: TimeInterval
     var pauseStartedAt: Date?
     var activeIntervals: [TaskActiveInterval]
+    var continuedFromSessionID: UUID?
 
     init(
         id: UUID = UUID(),
+        taskGroupID: UUID = UUID(),
         name: String,
         category: String? = nil,
         status: TaskStatus = .idle,
@@ -28,9 +31,11 @@ struct TaskSession: Identifiable, Codable, Equatable {
         accumulatedActiveDuration: TimeInterval = 0,
         accumulatedPausedDuration: TimeInterval = 0,
         pauseStartedAt: Date? = nil,
-        activeIntervals: [TaskActiveInterval] = []
+        activeIntervals: [TaskActiveInterval] = [],
+        continuedFromSessionID: UUID? = nil
     ) {
         self.id = id
+        self.taskGroupID = taskGroupID
         self.name = name
         self.category = category
         self.status = status
@@ -42,10 +47,12 @@ struct TaskSession: Identifiable, Codable, Equatable {
         self.accumulatedPausedDuration = accumulatedPausedDuration
         self.pauseStartedAt = pauseStartedAt
         self.activeIntervals = activeIntervals
+        self.continuedFromSessionID = continuedFromSessionID
     }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id
+            && lhs.taskGroupID == rhs.taskGroupID
             && lhs.name == rhs.name
             && lhs.category == rhs.category
             && lhs.status == rhs.status
@@ -57,5 +64,6 @@ struct TaskSession: Identifiable, Codable, Equatable {
             && lhs.accumulatedPausedDuration == rhs.accumulatedPausedDuration
             && lhs.pauseStartedAt == rhs.pauseStartedAt
             && lhs.activeIntervals == rhs.activeIntervals
+            && lhs.continuedFromSessionID == rhs.continuedFromSessionID
     }
 }

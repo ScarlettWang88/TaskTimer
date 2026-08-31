@@ -1,6 +1,6 @@
 import Foundation
 
-struct TaskActiveInterval: Codable, Equatable {
+struct TaskActiveInterval: Codable, Equatable, Sendable {
     var startedAt: Date
     var endedAt: Date
 

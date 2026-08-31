@@ -1,12 +1,20 @@
 import SwiftData
 import SwiftUI
 
+private enum MainPage: String, CaseIterable, Identifiable {
+    case tasks = "Tasks"
+    case history = "History"
+
+    var id: Self { self }
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var windowManager: WindowManager
     @State private var taskStore: TaskStore?
     @State private var newTaskName = ""
     @State private var isCreatingTask = false
+    @State private var selectedPage = MainPage.tasks
     @State private var persistenceErrorMessage: String?
 
     var body: some View {
@@ -14,20 +22,24 @@ struct ContentView: View {
             titleBar
 
             if let taskStore {
-                if let activeTask = taskStore.activeTask {
-                    currentTask(taskStore: taskStore, task: activeTask)
-
-                    if !taskStore.otherTasks.isEmpty {
-                        Divider()
-                        otherTasks(taskStore: taskStore)
-                    }
+                if selectedPage == .history {
+                    HistoryView(taskStore: taskStore)
                 } else {
-                    emptyTaskState
-                }
+                    if let activeTask = taskStore.activeTask {
+                        currentTask(taskStore: taskStore, task: activeTask)
 
-                if let completed = taskStore.lastCompletedTask {
-                    Divider()
-                    completionSummary(completed)
+                        if !taskStore.otherTasks.isEmpty {
+                            Divider()
+                            otherTasks(taskStore: taskStore)
+                        }
+                    } else {
+                        emptyTaskState
+                    }
+
+                    if let completed = taskStore.lastCompletedTask {
+                        Divider()
+                        completionSummary(completed)
+                    }
                 }
             } else {
                 ProgressView()
@@ -49,20 +61,27 @@ struct ContentView: View {
 
     private var titleBar: some View {
         HStack {
-            Text("Tasks")
-                .font(.headline)
+            Picker("Page", selection: $selectedPage) {
+                ForEach(MainPage.allCases) { page in
+                    Text(page.rawValue).tag(page)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 180)
 
             Spacer()
 
-            Button {
-                newTaskName = ""
-                isCreatingTask = true
-            } label: {
-                Image(systemName: "plus")
+            if selectedPage == .tasks {
+                Button {
+                    newTaskName = ""
+                    isCreatingTask = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .help("New Task")
+                .accessibilityLabel("New Task")
             }
-            .buttonStyle(.plain)
-            .help("New Task")
-            .accessibilityLabel("New Task")
 
             Button {
                 windowManager.setPinned(!windowManager.isPinned)
@@ -103,13 +122,13 @@ struct ContentView: View {
                 .accessibilityLabel("Current task name")
 
             TimelineView(.periodic(from: .now, by: 1)) { _ in
-                Text(formattedDuration(taskStore.duration(for: task)))
+                Text(DurationFormatter.clock(taskStore.duration(for: task)))
                     .font(.system(size: 52, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel("Elapsed time")
-                    .accessibilityValue(formattedDuration(taskStore.duration(for: task)))
+                    .accessibilityValue(DurationFormatter.clock(taskStore.duration(for: task)))
             }
 
             HStack(spacing: 12) {
@@ -190,7 +209,7 @@ struct ContentView: View {
 
                     Spacer()
 
-                    Text(formattedDuration(taskStore.duration(for: task)))
+                    Text(DurationFormatter.clock(taskStore.duration(for: task)))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
@@ -249,7 +268,7 @@ struct ContentView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text(formattedDuration(session.accumulatedActiveDuration))
+            Text(DurationFormatter.clock(session.accumulatedActiveDuration))
                 .monospacedDigit()
         }
     }
@@ -334,15 +353,6 @@ struct ContentView: View {
         status == .running ? .green : .secondary
     }
 
-    private func formattedDuration(_ duration: TimeInterval) -> String {
-        let totalSeconds = max(0, Int(duration.rounded(.down)))
-        return String(
-            format: "%02d:%02d:%02d",
-            totalSeconds / 3_600,
-            (totalSeconds % 3_600) / 60,
-            totalSeconds % 60
-        )
-    }
 }
 
 #Preview {

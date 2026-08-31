@@ -102,6 +102,68 @@ struct TaskSessionStoreTests {
         #expect(restored.isEmpty)
     }
 
+    @Test("Continuation lineage round trips and absent legacy lineage remains nil")
+    func continuationLineageRoundTrip() throws {
+        let container = try makeContainer()
+        let originID = UUID()
+        var continued = makeSession(status: .idle)
+        continued.continuedFromSessionID = originID
+        let legacy = TaskSession(name: "Legacy", createdAt: referenceDate)
+        try TaskSessionStore(modelContext: ModelContext(container)).save(
+            [continued, legacy],
+            activeTaskID: nil
+        )
+
+        let restored = try TaskSessionStore(
+            modelContext: ModelContext(container)
+        ).load().sessions
+
+        #expect(restored.first { $0.id == continued.id }?.continuedFromSessionID == originID)
+        #expect(restored.first { $0.id == legacy.id }?.continuedFromSessionID == nil)
+    }
+
+    @Test("Legacy records receive stable distinct group IDs without name merging")
+    func migratesLegacyGroupIDs() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let first = PersistedTaskSession(session: TaskSession(name: "Same", createdAt: referenceDate))
+        let second = PersistedTaskSession(session: TaskSession(name: "Same", createdAt: referenceDate))
+        first.taskGroupID = nil
+        second.taskGroupID = nil
+        context.insert(first)
+        context.insert(second)
+        try context.save()
+
+        let store = TaskSessionStore(modelContext: context)
+        let firstLoad = try store.load().sessions
+        let secondLoad = try store.load().sessions
+
+        #expect(Set(firstLoad.map(\.taskGroupID)).count == 2)
+        #expect(Dictionary(uniqueKeysWithValues: firstLoad.map { ($0.id, $0.taskGroupID) })
+                == Dictionary(uniqueKeysWithValues: secondLoad.map { ($0.id, $0.taskGroupID) }))
+    }
+
+    @Test("Legacy continuation lineage reconstructs one stable group")
+    func migratesLegacyContinuationChain() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let origin = TaskSession(name: "Chain", status: .completed, createdAt: referenceDate,
+                                 completedAt: referenceDate)
+        let child = TaskSession(name: "Chain", status: .completed, createdAt: referenceDate,
+                                completedAt: referenceDate, continuedFromSessionID: origin.id)
+        let originRecord = PersistedTaskSession(session: origin)
+        let childRecord = PersistedTaskSession(session: child)
+        originRecord.taskGroupID = nil
+        childRecord.taskGroupID = nil
+        context.insert(originRecord)
+        context.insert(childRecord)
+        try context.save()
+
+        let restored = try TaskSessionStore(modelContext: context).load().sessions
+
+        #expect(Set(restored.map(\.taskGroupID)).count == 1)
+    }
+
     private var referenceDate: Date {
         Date(timeIntervalSince1970: 10_000)
     }

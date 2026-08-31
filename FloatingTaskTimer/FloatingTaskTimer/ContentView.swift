@@ -3,6 +3,7 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Bindable var windowManager: WindowManager
     @State private var session = TaskSession(name: "")
     @State private var hasRestoredSession = false
     @State private var persistenceErrorMessage: String?
@@ -32,8 +33,23 @@ struct ContentView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Task")
-                .font(.headline)
+            HStack {
+                Text("Task")
+                    .font(.headline)
+
+                Spacer()
+
+                Button {
+                    windowManager.setPinned(!windowManager.isPinned)
+                } label: {
+                    Image(systemName: windowManager.isPinned ? "pin.fill" : "pin")
+                }
+                .buttonStyle(.plain)
+                .help(windowManager.isPinned ? "Disable Always on Top" : "Keep Timer on Top")
+                .accessibilityLabel(
+                    windowManager.isPinned ? "Disable Always on Top" : "Keep Timer on Top"
+                )
+            }
 
             TextField("What are you working on?", text: $session.name)
                 .textFieldStyle(.roundedBorder)
@@ -218,6 +234,6 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(windowManager: WindowManager())
         .modelContainer(for: PersistedTaskSession.self, inMemory: true)
 }

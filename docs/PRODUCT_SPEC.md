@@ -1369,6 +1369,17 @@ Test:
 - app switching
 - multi-monitor behavior
 
+Pin ON:
+1. Open Visual Studio Code.
+2. Enter native macOS full-screen mode.
+3. Switch into the VS Code full-screen Space.
+4. FloatingTaskTimer must remain visible above VS Code.
+5. Timer controls must remain clickable.
+6. The timer must not steal keyboard focus from the VS Code editor unnecessarily.
+
+This behavior must not be implemented as a VS Code-specific hack.
+It should come from correct NSPanel / NSWindow configuration and work across normal macOS full-screen applications.
+
 Commit:
 
 `feat: add floating timer panel`

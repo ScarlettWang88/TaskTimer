@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        windowManager.showWindow()
+        windowManager.showWindowOnCurrentSpace()
     }
 
     func applicationShouldHandleReopen(
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hasVisibleWindows flag: Bool
     ) -> Bool {
         if !flag {
-            windowManager.showWindow()
+            windowManager.showWindowOnCurrentSpace()
         }
         return true
     }

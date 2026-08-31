@@ -31,6 +31,8 @@ struct MenuBarLabelView: View {
 }
 
 struct MenuBarView: View {
+    @Environment(\.openSettings) private var openSettings
+
     @Bindable var taskStore: TaskStore
     let windowManager: WindowManager
     @Bindable var settings: SettingsStore
@@ -57,6 +59,10 @@ struct MenuBarView: View {
 
             Button("Open Floating Timer") { windowManager.showWindowOnCurrentSpace() }
             Button("History") { windowManager.showHistory() }
+            Button("Settings…") {
+                openSettings()
+                windowManager.bringSettingsToCurrentSpace()
+            }
             Divider()
             Button("Quit Floating Task Timer") { NSApp.terminate(nil) }
         }

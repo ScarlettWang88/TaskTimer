@@ -20,7 +20,10 @@ struct FloatingTaskTimerApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(settings: appDelegate.settingsStore)
+            SettingsView(
+                settings: appDelegate.settingsStore,
+                windowManager: appDelegate.windowManager
+            )
         }
     }
 

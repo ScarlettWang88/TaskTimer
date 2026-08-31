@@ -44,6 +44,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
         }
         super.init()
 
+        applyAppearance(settings.appearance)
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(activeSpaceDidChange),
@@ -97,6 +99,26 @@ final class WindowManager: NSObject, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak panel] in
             guard let self, let panel, !self.isPinned else { return }
             panel.collectionBehavior = Self.unpinnedCollectionBehavior
+        }
+    }
+
+    func bringSettingsToCurrentSpace() {
+        // Activating the app to front Settings can otherwise bring the unpinned
+        // timer panel into the active Space as a second window.
+        if !isPinned {
+            panel?.orderOut(nil)
+        }
+        locateAndBringSettingsWindow(attemptsRemaining: 10)
+    }
+
+    func applyAppearance(_ appearance: AppAppearance) {
+        switch appearance {
+        case .system:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
         }
     }
 
@@ -160,6 +182,30 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
         if isPinned {
             panel.orderFrontRegardless()
+        }
+    }
+
+    private func locateAndBringSettingsWindow(attemptsRemaining: Int) {
+        if let settingsWindow = NSApp.windows.first(where: { window in
+            guard window !== panel, !(window is NSSavePanel) else { return false }
+            let identity = [window.title, window.identifier?.rawValue ?? ""]
+                .joined(separator: " ")
+                .lowercased()
+            return identity.contains("settings") || identity.contains("preferences")
+        }) {
+            settingsWindow.collectionBehavior = Self.summonedUnpinnedCollectionBehavior
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindow.makeKeyAndOrderFront(nil)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak settingsWindow] in
+                settingsWindow?.collectionBehavior = Self.unpinnedCollectionBehavior
+            }
+            return
+        }
+
+        guard attemptsRemaining > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.locateAndBringSettingsWindow(attemptsRemaining: attemptsRemaining - 1)
         }
     }
 

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
+    let windowManager: WindowManager
 
     var body: some View {
         TabView {
@@ -18,6 +19,9 @@ struct SettingsView: View {
         }
         .frame(width: 500, height: 260)
         .preferredColorScheme(settings.appearance.colorScheme)
+        .onChange(of: settings.appearance, initial: true) { _, appearance in
+            windowManager.applyAppearance(appearance)
+        }
     }
 
     private var settingsForm: some View {

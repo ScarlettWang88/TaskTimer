@@ -171,6 +171,8 @@ I can see completed tasks by date.
 
 I can inspect how much time was spent on each task.
 
+I can select completed records for Excel export and use native context-menu actions to continue tracking, rename, or delete a History record.
+
 ## 3.8 Restore after restart
 
 If the app is quit or crashes, every task state must restore accurately. All tasks that were running continue independently from their stored timestamps, while paused tasks remain frozen.
@@ -350,6 +352,7 @@ struct TaskSession: Identifiable, Codable {
     var accumulatedActiveDuration: TimeInterval
     var accumulatedPausedDuration: TimeInterval
     var pauseStartedAt: Date?
+    var continuedFromSessionID: UUID?
 }
 ```
 
@@ -598,6 +601,170 @@ Opening a record shows:
 
 ---
 
+## 4.14.1 History Selection and Excel Export
+
+History must support selecting one or multiple completed task records.
+
+Selection behavior:
+
+- single click selects one History record
+- Command-click adds or removes records from the selection
+- Shift-click selects a range where appropriate
+- selection uses native macOS visual treatment
+- `Export Selected` is disabled when no History record is selected
+
+The user can export only the selected History records.
+
+Primary export format:
+
+- Microsoft Excel `.xlsx`
+
+Optional secondary export format:
+
+- CSV `.csv`
+
+Use the standard macOS save workflow so the user chooses the destination. Export data must remain local and must not be uploaded to a cloud service.
+
+Exported columns:
+
+- Task Name
+- Date
+- Start Time
+- End Time
+- Active Duration
+- Paused Duration
+- Total Elapsed Duration
+- Category, if available
+- Session ID
+- Continued From Session ID, if available
+
+The exported file must open directly in:
+
+- Microsoft Excel
+- Apple Numbers
+
+For `.xlsx` export:
+
+- create a real Excel workbook, not a CSV file renamed to `.xlsx`
+- include a header row
+- use sensible column widths where practical
+- use human-readable date, time, and duration values
+- preserve raw session identifiers for traceability
+
+Large selections should be exported away from the main UI path where practical so export work does not unnecessarily block interaction.
+
+---
+
+## 4.14.2 History Context Menu
+
+Every completed History record must provide a native macOS right-click context menu with:
+
+- Continue Tracking
+- Rename
+- Delete
+
+Double-clicking or using an explicit Open action should show History detail.
+
+### Continue Tracking
+
+Continue Tracking resumes the user's work conceptually without mutating historical evidence.
+
+The original completed record is immutable with respect to timing and completion state. Do not convert it back into a running task.
+
+Instead:
+
+1. Keep the original completed History record unchanged.
+2. Create a new active `TaskSession` with its own UUID.
+3. Inherit the previous task name and category where available.
+4. Set `continuedFromSessionID` to the original completed session ID.
+5. Initialize the new session's accumulated active duration from the previous session's accumulated active duration.
+6. Preserve the relationship for export, detail views, and future analytics.
+
+Example:
+
+```text
+Original History
+Prepare proposal
+Active Duration: 01:20:00
+Status: completed
+
+Continued Session
+Prepare proposal
+Initial displayed active duration: 01:20:00
+continuedFromSessionID: <original session ID>
+```
+
+Continue Tracking must not:
+
+- pause other running tasks
+- reset or modify other tasks
+- mutate or delete the original completed record
+- modify unrelated History records
+
+Multiple continued sessions from the same completed record are allowed. Each continued session retains a unique UUID and the same lineage reference.
+
+### Rename
+
+Rename edits only the completed record's display name.
+
+Requirements:
+
+- persist the name change immediately
+- support duplicate names
+- do not modify timestamps, durations, status, session ID, or continuation lineage
+
+### Delete
+
+Delete requires confirmation.
+
+Recommended dialog:
+
+`Delete this history record?`
+
+Actions:
+
+- Cancel
+- Delete
+
+Deletion may be permanent in the MVP. A Trash system is not required.
+
+Deleting a History record must:
+
+- remove only the selected completed record
+- persist immediately
+- not affect active or running tasks
+- not affect other completed records
+
+---
+
+## 4.14.3 Continued Task Data Model
+
+Add the following optional field to `TaskSession` and its persisted representation:
+
+```swift
+var continuedFromSessionID: UUID?
+```
+
+Every session keeps its own unique `id`. Continuing a task must never replace or reuse the original completed session ID.
+
+The lineage field supports traceability, export, History detail, and future analytics without changing the original History record.
+
+---
+
+## 4.14.4 History UX
+
+Recommended native macOS interactions:
+
+- single click: select one History record
+- Command-click: multi-select
+- Shift-click: range select where appropriate
+- right-click: open the History context menu
+- double-click or Open: show History detail
+
+History selection should use native macOS list or table behavior and remain visually distinct in Light and Dark Mode.
+
+---
+
 # 4.15 Daily Statistics
 
 History page top section:
@@ -749,6 +916,7 @@ Persist:
 
 - tasks
 - completed sessions
+- continuation lineage between sessions
 - settings
 - active task ID
 - window position
@@ -809,30 +977,21 @@ If enabled:
 
 ---
 
-# 4.23 CSV Export
+# 4.23 History Export Formats
 
-History page action:
+History page primary action:
 
-`Export CSV`
+`Export Selected`
 
-Columns:
+Primary format:
 
-```text
-Date
-Task
-Category
-Start Time
-End Time
-Active Duration
-Paused Duration
-Elapsed Duration
-```
+- Excel `.xlsx`
 
-Make the output compatible with:
+Optional secondary format:
 
-- Excel
-- Numbers
-- Google Sheets
+- CSV `.csv`
+
+Only selected completed History records are exported. Follow the selection, workbook, columns, privacy, performance, and standard macOS save requirements in section 4.14.1.
 
 ---
 
@@ -948,6 +1107,10 @@ FloatingTaskTimer/
     ├── TaskStoreTests.swift
     └── DurationFormatterTests.swift
 ```
+
+`ExportService` should own workbook/CSV generation and file-writing coordination. History views should provide selected session IDs and user intent rather than constructing export files directly.
+
+`TaskStore` or a dedicated History service should own Continue Tracking, Rename, Delete, and completed-record persistence coordination.
 
 ---
 
@@ -1072,6 +1235,7 @@ Recommended persisted entities:
 - accumulatedActiveDuration
 - accumulatedPausedDuration
 - pauseStartedAt
+- continuedFromSessionID
 
 ## Settings
 
@@ -1113,7 +1277,8 @@ Use task IDs where possible.
 The product should not crash because:
 
 - local database cannot write once
-- CSV export fails
+- Excel or CSV export fails
+- a History rename or deletion cannot be persisted
 - a corrupted preference exists
 - window location is invalid
 - a shortcut conflicts
@@ -1165,6 +1330,11 @@ Test:
 - completing a task
 - deleting a task
 - schema migration
+- History multi-selection and selected-record export
+- Continue Tracking preserves the original completed record
+- History rename changes only the name
+- History delete affects only the chosen completed record
+- `.xlsx` output is a valid workbook readable by Excel and Numbers
 
 ---
 
@@ -1178,9 +1348,12 @@ Core flows:
 4. Resume.
 5. Finish.
 6. Verify history item.
-7. Toggle Pin.
-8. Open menu bar.
-9. Switch active task.
+7. Multi-select History records and export the selection.
+8. Continue Tracking from History and verify the original remains completed.
+9. Rename and delete History records through the context menu.
+10. Toggle Pin.
+11. Open menu bar.
+12. Switch active task.
 
 ---
 
@@ -1216,15 +1389,15 @@ Version 1.0 MVP should contain only:
 9. Multiple simultaneously running tasks
 10. Independent task controls and active task selection
 11. History
-12. Menu-bar timer
-13. local persistence
-14. accurate restart recovery
-15. settings basics
+12. History selection, context actions, and Excel export
+13. Menu-bar timer
+14. local persistence
+15. accurate restart recovery
+16. settings basics
 
 Optional for 1.1:
 
 - categories
-- CSV export
 - global shortcuts
 - launch at login
 - richer analytics
@@ -1431,11 +1604,32 @@ Commit:
 
 # Phase 7 — History
 
-Create history list and detail page.
+Implement:
+
+- basic History persistence
+- History list
+- History detail
 
 Commit:
 
 `feat: add task history`
+
+---
+
+# Phase 7.1 — History Actions and Export
+
+Implement:
+
+- native History multi-selection
+- Continue Tracking with immutable original records and session lineage
+- Rename
+- confirmed permanent Delete
+- selected-record Excel `.xlsx` export
+- optional selected-record CSV export
+
+Commit:
+
+`feat: add history actions and excel export`
 
 ---
 
@@ -1610,7 +1804,7 @@ Enable App Sandbox.
 
 Grant only required entitlements.
 
-For CSV export, use user-selected file access via standard save panels rather than broad filesystem permissions.
+For Excel or CSV export, use user-selected file access via standard save panels rather than broad filesystem permissions.
 
 ---
 
@@ -1710,7 +1904,7 @@ Verify:
 - menu bar works
 - history persists
 - dark mode works
-- CSV export works if included
+- selected History export produces a valid `.xlsx` workbook
 - sleep/wake behavior is correct
 - no debug logs expose task names
 - app icon displays correctly
@@ -1805,7 +1999,7 @@ Use semantic versioning conceptually:
 Examples:
 
 - `1.0.0`: first stable release
-- `1.1.0`: categories + CSV
+- `1.1.0`: categories and other validated productivity improvements
 - `1.2.0`: keyboard shortcuts
 - `2.0.0`: major sync or platform expansion
 
@@ -1818,7 +2012,6 @@ After product-market validation:
 ## 1.1
 
 - Categories
-- CSV export
 - keyboard shortcuts
 - Launch at Login
 
@@ -1879,6 +2072,9 @@ The product is ready for beta when all of the following are true:
 - multiple tasks can run simultaneously and independently
 - all running tasks recover accurately after relaunch
 - completed sessions appear in history
+- History supports native multi-selection and selection-only Excel export
+- History supports Continue Tracking without mutating the original completed record
+- History supports persisted Rename and confirmed Delete actions
 - menu bar shows current timer
 - no known data-loss bug exists
 - basic unit tests pass

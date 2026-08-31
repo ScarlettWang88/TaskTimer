@@ -69,6 +69,7 @@ struct TimerEngineTests {
         #expect(session.completedAt == nil)
         #expect(session.accumulatedActiveDuration == 0)
         #expect(session.accumulatedPausedDuration == 0)
+        #expect(session.activeIntervals.isEmpty)
     }
 
     @Test("Finish a running session captures final active interval")
@@ -179,6 +180,18 @@ struct TimerEngineTests {
         #expect(engine.currentDuration(for: session) == 0)
         #expect(engine.pause(&session))
         #expect(session.accumulatedActiveDuration == 0)
+    }
+
+    @Test("Pause and resume preserve completed active intervals")
+    func preservesActiveIntervalsAcrossResume() {
+        let (clock, engine, initialSession) = runningSession()
+        var session = initialSession
+        clock.advance(by: 10)
+        #expect(engine.pause(&session))
+        let interval = session.activeIntervals
+        clock.advance(by: 5)
+        #expect(engine.resume(&session))
+        #expect(session.activeIntervals == interval)
     }
 
     private func runningSession() -> (TestTimeProvider, TimerEngine, TaskSession) {

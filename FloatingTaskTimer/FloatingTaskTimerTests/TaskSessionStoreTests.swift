@@ -6,6 +6,33 @@ import Testing
 @MainActor
 @Suite("TaskSessionStore")
 struct TaskSessionStoreTests {
+    @Test("A copied legacy database upgrades and reopens idempotently")
+    func copiedLegacyDatabaseUpgrade() throws {
+        guard let path = ProcessInfo.processInfo.environment["FTT_UPGRADE_DATABASE_COPY"] else {
+            return
+        }
+        let schema = Schema([PersistedTaskSession.self, PersistedTaskStoreState.self])
+        let configuration = ModelConfiguration(
+            "LegacyUpgradeCopy",
+            schema: schema,
+            url: URL(fileURLWithPath: path),
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        func loadCopy() throws -> [TaskSession] {
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            return try TaskSessionStore(modelContext: container.mainContext).load().sessions
+        }
+        let firstLoad = try loadCopy()
+        let firstIdentity = Dictionary(uniqueKeysWithValues: firstLoad.map { ($0.id, $0.taskGroupID) })
+        let secondLoad = try loadCopy()
+        let secondIdentity = Dictionary(uniqueKeysWithValues: secondLoad.map { ($0.id, $0.taskGroupID) })
+
+        #expect(firstIdentity == secondIdentity)
+        #expect(secondLoad.allSatisfy { $0.accumulatedActiveDuration >= 0 })
+        #expect(secondLoad.allSatisfy { $0.accumulatedPausedDuration >= 0 })
+    }
+
     @Test(arguments: [TaskStatus.idle, .running, .paused, .completed])
     func roundTripsEverySessionState(status: TaskStatus) throws {
         let container = try makeContainer()
@@ -88,8 +115,8 @@ struct TaskSessionStoreTests {
         #expect(restored?.lastResumedAt == nil)
     }
 
-    @Test("An invalid record is discarded safely")
-    func discardsInvalidRecord() throws {
+    @Test("An invalid record is repaired without data loss")
+    func repairsInvalidRecord() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         let record = PersistedTaskSession(session: makeSession(status: .running))
@@ -99,7 +126,9 @@ struct TaskSessionStoreTests {
 
         let restored = try TaskSessionStore(modelContext: ModelContext(container)).load().sessions
 
-        #expect(restored.isEmpty)
+        #expect(restored.count == 1)
+        #expect(restored.first?.id == record.sessionID)
+        #expect(restored.first?.status == .idle)
     }
 
     @Test("Continuation lineage round trips and absent legacy lineage remains nil")
@@ -118,7 +147,7 @@ struct TaskSessionStoreTests {
             modelContext: ModelContext(container)
         ).load().sessions
 
-        #expect(restored.first { $0.id == continued.id }?.continuedFromSessionID == originID)
+        #expect(restored.first { $0.id == continued.id }?.continuedFromSessionID == nil)
         #expect(restored.first { $0.id == legacy.id }?.continuedFromSessionID == nil)
     }
 
@@ -151,16 +180,76 @@ struct TaskSessionStoreTests {
                                  completedAt: referenceDate)
         let child = TaskSession(name: "Chain", status: .completed, createdAt: referenceDate,
                                 completedAt: referenceDate, continuedFromSessionID: origin.id)
+        let grandchild = TaskSession(name: "Chain", status: .completed, createdAt: referenceDate,
+                                     completedAt: referenceDate, continuedFromSessionID: child.id)
         let originRecord = PersistedTaskSession(session: origin)
         let childRecord = PersistedTaskSession(session: child)
+        let grandchildRecord = PersistedTaskSession(session: grandchild)
         originRecord.taskGroupID = nil
         childRecord.taskGroupID = nil
+        grandchildRecord.taskGroupID = nil
         context.insert(originRecord)
         context.insert(childRecord)
+        context.insert(grandchildRecord)
         try context.save()
 
         let restored = try TaskSessionStore(modelContext: context).load().sessions
 
+        #expect(Set(restored.map(\.taskGroupID)).count == 1)
+    }
+
+    @Test("Duplicate session IDs are repaired without deleting either record")
+    func repairsDuplicateSessionIDs() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let session = makeSession(status: .completed)
+        context.insert(PersistedTaskSession(session: session))
+        context.insert(PersistedTaskSession(session: session))
+        try context.save()
+
+        let restored = try TaskSessionStore(modelContext: context).load().sessions
+
+        #expect(restored.count == 2)
+        #expect(Set(restored.map(\.id)).count == 2)
+    }
+
+    @Test("Corrupted durations and missing running timestamp repair deterministically")
+    func repairsCorruptedTimingState() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = PersistedTaskSession(session: makeSession(status: .running))
+        record.lastResumedAt = nil
+        record.accumulatedActiveDuration = -42
+        record.accumulatedPausedDuration = .infinity
+        context.insert(record)
+        try context.save()
+
+        let first = try TaskSessionStore(modelContext: context).load().sessions.first
+        let second = try TaskSessionStore(modelContext: context).load().sessions.first
+
+        #expect(first?.status == .paused)
+        #expect(first?.accumulatedActiveDuration == 0)
+        #expect(first?.accumulatedPausedDuration == 0)
+        #expect(first?.pauseStartedAt != nil)
+        #expect(first == second)
+    }
+
+    @Test("Lineage cycles are broken without deleting sessions")
+    func repairsLineageCycle() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        var first = makeSession(status: .completed)
+        var second = makeSession(status: .completed)
+        first.continuedFromSessionID = second.id
+        second.continuedFromSessionID = first.id
+        context.insert(PersistedTaskSession(session: first))
+        context.insert(PersistedTaskSession(session: second))
+        try context.save()
+
+        let restored = try TaskSessionStore(modelContext: context).load().sessions
+
+        #expect(restored.count == 2)
+        #expect(restored.filter { $0.continuedFromSessionID == nil }.count == 1)
         #expect(Set(restored.map(\.taskGroupID)).count == 1)
     }
 

@@ -1,0 +1,339 @@
+Non-Commercial Software License v1.0
+
+Copyright (c) 2026 whywhy
+
+All rights reserved except as expressly granted under this License.
+
+1. Definitions
+
+For purposes of this License:
+
+“Software” means the source code, object code, executable files, documentation, configuration files, assets, and other materials distributed with this project.
+
+“Copyright Holder” means whywhy.
+
+“You” or “Licensee” means any individual or legal entity exercising permissions granted by this License.
+
+“Non-Commercial Use” means use that is primarily intended for personal, educational, academic, research, evaluation, or other purposes that do not directly or indirectly generate revenue, commercial advantage, monetary compensation, or financial benefit.
+
+“Commercial Use” means any use of the Software that directly or indirectly relates to revenue generation, commercial advantage, paid services, business operations, monetized products, or other financial benefit.
+
+⸻
+
+2. Grant of License
+
+Subject to the terms and conditions of this License, the Copyright Holder grants You a limited, worldwide, non-exclusive, non-transferable, revocable, royalty-free license to:
+
+1. View and study the source code.
+2. Run the Software for personal and non-commercial purposes.
+3. Copy the Software for personal, educational, academic, research, or evaluation purposes.
+4. Modify the Software for Non-Commercial Use.
+5. Create derivative works for Non-Commercial Use.
+6. Redistribute unmodified or modified copies for Non-Commercial Use, provided that all requirements of this License are followed.
+
+No rights are granted except those expressly stated in this License.
+
+⸻
+
+3. Non-Commercial Restriction
+
+You may not use the Software, in whole or in part, for Commercial Use without prior written permission from the Copyright Holder.
+
+Commercial Use includes, but is not limited to:
+
+1. Selling the Software or any derivative work.
+2. Charging users to access or use the Software.
+3. Including the Software in a paid application, product, service, or subscription.
+4. Offering the Software as part of a Software-as-a-Service (SaaS) product.
+5. Offering hosted, managed, cloud, or subscription-based access to the Software for payment.
+6. Using the Software to provide paid consulting, implementation, support, hosting, development, or professional services where the Software is a material part of the service.
+7. Incorporating the Software into a commercial product or proprietary product offered for sale or subscription.
+8. Redistributing the Software as part of a commercial software bundle.
+9. Selling modified versions, forks, ports, or derivative works.
+10. Monetizing the Software through advertising, sponsorship, paid access, licensing fees, transaction fees, or other revenue-generating mechanisms.
+11. Using the Software primarily to support a revenue-generating product or service.
+12. Using the Software internally where the Software itself forms a material part of a commercial service delivered to customers.
+
+For clarity, incidental use of general-purpose development tools by an individual does not automatically constitute Commercial Use. However, using this Software itself as part of a commercial product, commercial service, or revenue-generating offering is prohibited without a separate commercial license.
+
+⸻
+
+4. Business and Organizational Use
+
+Commercial companies, for-profit organizations, and other revenue-generating entities may view and evaluate the Software.
+
+They may also use the Software internally for temporary testing, security review, technical evaluation, or proof-of-concept purposes, provided that:
+
+1. The Software is not deployed into production.
+2. The Software is not used to provide services to customers.
+3. The Software is not incorporated into a commercial product.
+4. The Software is not used to generate revenue or commercial advantage beyond internal evaluation.
+
+Production or operational use by a commercial entity requires prior written permission from the Copyright Holder unless the Copyright Holder explicitly grants otherwise.
+
+⸻
+
+5. Educational and Research Use
+
+Schools, universities, teachers, students, researchers, and non-profit research organizations may use, modify, and redistribute the Software for genuine educational, academic, or non-commercial research purposes.
+
+This permission does not extend to:
+
+1. Commercial training programs.
+2. Paid commercial courses where the Software itself is a material component of the paid offering.
+3. Commercial research performed primarily on behalf of a paying customer.
+4. Commercial products derived from research involving the Software.
+
+⸻
+
+6. Redistribution
+
+You may redistribute the Software or derivative works only for Non-Commercial Use.
+
+Any redistribution must:
+
+1. Include a complete copy of this License.
+2. Retain the original copyright notice.
+3. Clearly identify any significant modifications.
+4. Not misrepresent the modified work as the official version.
+5. Not remove attribution to the Copyright Holder.
+6. Not impose terms that permit Commercial Use in violation of this License.
+
+You may not relicense the Software under terms that remove or weaken the non-commercial restriction.
+
+⸻
+
+7. Modified Versions and Derivative Works
+
+You may modify the Software and create derivative works for Non-Commercial Use.
+
+Modified versions must clearly state that they have been modified.
+
+You may not:
+
+1. Claim authorship of the original Software.
+2. Present a derivative work as an official release of the Copyright Holder.
+3. Use the Copyright Holder’s name, project name, logo, or trademarks to imply endorsement.
+4. Offer modified versions commercially without a separate written commercial license.
+
+⸻
+
+8. Source Code Availability
+
+If You publicly redistribute a modified version of the Software, You must make the corresponding modified source code reasonably available under this License.
+
+You may not distribute a publicly available binary-only derivative while withholding the corresponding source code if that redistribution is based substantially on this Software.
+
+This requirement applies only to redistributed derivative works and does not require private modifications to be published.
+
+⸻
+
+9. SaaS, Hosting, and Remote Access
+
+Without prior written permission, You may not make the Software or a derivative work available as:
+
+1. A paid hosted service.
+2. A paid SaaS product.
+3. A subscription service.
+4. A commercially operated web service.
+5. A paid API.
+6. A commercially managed deployment.
+7. A paid remote-access application.
+
+Providing remote access to the Software in exchange for money, fees, subscriptions, advertising revenue, or other commercial benefit is Commercial Use.
+
+⸻
+
+10. Commercial Licensing
+
+The Copyright Holder may offer separate commercial licenses.
+
+A commercial license may permit activities prohibited by this License, including:
+
+1. Commercial distribution.
+2. Paid SaaS use.
+3. Integration into proprietary products.
+4. Internal commercial production use.
+5. Resale.
+6. Paid hosting.
+7. Paid support or services.
+8. Private modifications without redistribution obligations.
+
+Commercial permission is valid only when granted in a separate written agreement by the Copyright Holder.
+
+⸻
+
+11. Contributions
+
+Unless otherwise agreed in writing, contributions submitted to this project do not transfer ownership of the Copyright Holder’s existing code.
+
+By intentionally submitting a contribution to the project, You represent that:
+
+1. You have the legal right to submit the contribution.
+2. The contribution does not knowingly violate third-party intellectual property rights.
+3. You grant the Copyright Holder a worldwide, perpetual, irrevocable, non-exclusive, royalty-free license to use, reproduce, modify, distribute, sublicense, and relicense the contribution.
+
+The Copyright Holder may incorporate contributions into commercial or non-commercial versions of the Software.
+
+Contributors retain copyright in their original contributions unless separately assigned.
+
+⸻
+
+12. No Trademark License
+
+This License does not grant permission to use any trade name, trademark, service mark, logo, branding, or product identity associated with the Copyright Holder or the Software.
+
+You may use the project name only as reasonably necessary to identify the origin of the Software.
+
+You may not imply sponsorship, endorsement, certification, or affiliation without written permission.
+
+⸻
+
+13. Third-Party Components
+
+The Software may include or depend on third-party software, libraries, assets, or other materials governed by separate licenses.
+
+Those third-party materials remain subject to their respective licenses.
+
+Nothing in this License overrides rights or obligations imposed by third-party licenses.
+
+You are responsible for complying with all applicable third-party license terms.
+
+⸻
+
+14. No Patent Grant
+
+Except where expressly stated in a separate written agreement, this License does not grant any patent rights.
+
+No patent license is implied by distribution, modification, or use of the Software.
+
+⸻
+
+15. Reservation of Rights
+
+All rights not expressly granted under this License are reserved by the Copyright Holder.
+
+In particular, the Copyright Holder retains the unrestricted right to:
+
+1. Use the Software commercially.
+2. Sell the Software.
+3. Offer paid licenses.
+4. Release the Software under different licenses.
+5. Offer proprietary versions.
+6. Offer hosted or SaaS versions.
+7. Grant commercial rights to third parties.
+8. Change the licensing model for future versions.
+
+⸻
+
+16. Termination
+
+Your rights under this License terminate automatically if You violate its terms.
+
+Upon termination, You must cease any activity that depended on rights granted by this License.
+
+Termination does not require prior notice from the Copyright Holder.
+
+The Copyright Holder may, at their discretion, reinstate Your rights after a violation has been corrected.
+
+Sections concerning ownership, disclaimers, limitation of liability, trademarks, and other provisions that by their nature should survive termination will continue to apply.
+
+⸻
+
+17. Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED “AS IS” AND “AS AVAILABLE”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF:
+
+* MERCHANTABILITY
+* FITNESS FOR A PARTICULAR PURPOSE
+* TITLE
+* NON-INFRINGEMENT
+* ACCURACY
+* RELIABILITY
+* SECURITY
+* AVAILABILITY
+
+THE COPYRIGHT HOLDER DOES NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, UNINTERRUPTED, SECURE, OR SUITABLE FOR ANY PARTICULAR PURPOSE.
+
+YOU USE THE SOFTWARE AT YOUR OWN RISK.
+
+⸻
+
+18. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE COPYRIGHT HOLDER, CONTRIBUTORS, OR DISTRIBUTORS BE LIABLE FOR ANY CLAIM, LOSS, DAMAGE, OR OTHER LIABILITY ARISING FROM OR RELATED TO THE SOFTWARE.
+
+THIS INCLUDES, WITHOUT LIMITATION:
+
+* DIRECT DAMAGES
+* INDIRECT DAMAGES
+* INCIDENTAL DAMAGES
+* SPECIAL DAMAGES
+* CONSEQUENTIAL DAMAGES
+* LOSS OF PROFITS
+* LOSS OF REVENUE
+* LOSS OF DATA
+* BUSINESS INTERRUPTION
+* LOSS OF GOODWILL
+
+THIS LIMITATION APPLIES WHETHER THE CLAIM ARISES IN CONTRACT, TORT, NEGLIGENCE, STRICT LIABILITY, OR OTHERWISE.
+
+⸻
+
+19. Indemnification
+
+To the extent permitted by applicable law, You agree to be responsible for claims, losses, liabilities, or expenses resulting from Your use, modification, redistribution, or violation of this License.
+
+This provision does not apply where prohibited by law.
+
+⸻
+
+20. Compliance With Law
+
+You are responsible for using the Software in compliance with applicable laws and regulations.
+
+No rights are granted for unlawful use.
+
+⸻
+
+21. Severability
+
+If any provision of this License is found to be invalid or unenforceable, the remaining provisions will remain in full force and effect to the maximum extent permitted by law.
+
+An invalid provision should be interpreted as narrowly as necessary to make it enforceable while preserving its original purpose.
+
+⸻
+
+22. No Waiver
+
+Failure by the Copyright Holder to enforce any provision of this License does not constitute a waiver of that provision or any other right.
+
+⸻
+
+23. Entire License
+
+This License constitutes the terms under which the Software is offered for Non-Commercial Use unless a separate written agreement applies.
+
+Any commercial license or other written agreement signed or expressly granted by the Copyright Holder takes precedence to the extent of any conflict.
+
+⸻
+
+24. Version
+
+This license is titled:
+
+Non-Commercial Software License v1.0
+
+The Copyright Holder may publish revised versions of this License in the future.
+
+Software released under version 1.0 remains governed by this version unless the Copyright Holder expressly provides otherwise.
+
+⸻
+
+25. Commercial Permission
+
+For commercial use, commercial distribution, paid hosting, SaaS use, integration into a commercial product, or other rights beyond this License, obtain separate written permission from the Copyright Holder.
+
+Copyright (c) 2026 whywhy
+
+All rights reserved except as expressly granted above.

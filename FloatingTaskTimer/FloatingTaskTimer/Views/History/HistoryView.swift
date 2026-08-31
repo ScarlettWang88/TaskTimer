@@ -4,8 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct HistoryView: View {
-    private static let exportLogger = Logger(subsystem: "whywhy.FloatingTaskTimer", category: "HistoryExport")
-
     @Bindable var taskStore: TaskStore
     @Bindable var settings: SettingsStore
     @State private var selectedIDs = Set<UUID>()
@@ -20,24 +18,25 @@ struct HistoryView: View {
     @State private var preparedSavePanel: NSSavePanel?
 
     var body: some View {
+        let historyGroups = taskStore.historyGroups
         VStack(spacing: 12) {
             HStack {
                 Text("History").font(.title2.weight(.semibold))
                 Spacer()
                 Button(allHistorySelected ? "Deselect All" : "Select All", action: toggleSelectAll)
-                    .disabled(taskStore.historyGroups.isEmpty || isExporting || isPresentingSavePanel)
+                    .disabled(historyGroups.isEmpty || isExporting || isPresentingSavePanel)
                 Button("Delete Selected", role: .destructive, action: requestDeleteSelected)
                     .disabled(selectedIDs.isEmpty || isExporting || isPresentingSavePanel)
                 Button(exportButtonTitle, action: exportSelected)
                     .disabled(selectedIDs.isEmpty || isExporting || isPresentingSavePanel)
             }
 
-            if taskStore.historyGroups.isEmpty {
+            if historyGroups.isEmpty {
                 ContentUnavailableView("No Completed Tasks", systemImage: "clock.arrow.circlepath",
                                        description: Text("Finished tasks will appear here."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(taskStore.historyGroups, selection: $selectedIDs) {
+                Table(historyGroups, selection: $selectedIDs) {
                     TableColumn("Task") { Text($0.name).lineLimit(1) }
                     TableColumn("Last Activity") { Text(completionDate($0.lastActivityAt)) }
                         .width(min: 105, ideal: 135)
@@ -84,7 +83,7 @@ struct HistoryView: View {
         .alert("Export Complete", isPresented: exportSuccessIsPresented) {
             Button("OK", role: .cancel) {}
         } message: { Text(exportSuccessMessage ?? "The selected History groups were exported.") }
-        .onChange(of: taskStore.historyGroups.map(\.id)) { _, availableIDs in
+        .onChange(of: historyGroups.map(\.id)) { _, availableIDs in
             selectedIDs.formIntersection(availableIDs)
         }
         .onAppear(perform: prepareSavePanelIfNeeded)
@@ -190,14 +189,14 @@ struct HistoryView: View {
 
     private func exportSelected() {
         let startedAt = ProcessInfo.processInfo.systemUptime
-        Self.exportLogger.notice("FTT_EXPORT_REG_01 button tapped elapsed_ms=0")
+        AppLogger.export.debug("FTT_EXPORT_REG_01 button tapped elapsed_ms=0")
         let groupIDs = selectedIDs
         guard !groupIDs.isEmpty, !isExporting, !isPresentingSavePanel else { return }
-        Self.exportLogger.notice("FTT_EXPORT_REG_02 selection validated groups=\(groupIDs.count) elapsed_ms=\(elapsedMS(since: startedAt))")
+        AppLogger.export.debug("FTT_EXPORT_REG_02 selection validated groups=\(groupIDs.count) elapsed_ms=\(elapsedMS(since: startedAt))")
 
-        Self.exportLogger.notice("FTT_EXPORT_REG_03 snapshot creation started elapsed_ms=\(elapsedMS(since: startedAt))")
+        AppLogger.export.debug("FTT_EXPORT_REG_03 snapshot creation started elapsed_ms=\(elapsedMS(since: startedAt))")
         let snapshot = taskStore.exportSnapshot(groupIDs: groupIDs)
-        Self.exportLogger.notice("FTT_EXPORT_REG_04 snapshot creation finished groups=\(snapshot.groups.count) sessions=\(snapshot.sessionCount) elapsed_ms=\(elapsedMS(since: startedAt))")
+        AppLogger.export.debug("FTT_EXPORT_REG_04 snapshot creation finished groups=\(snapshot.groups.count) sessions=\(snapshot.sessionCount) elapsed_ms=\(elapsedMS(since: startedAt))")
         guard !snapshot.groups.isEmpty else { return }
 
         isPresentingSavePanel = true
@@ -210,18 +209,18 @@ struct HistoryView: View {
         let panel: NSSavePanel
         if let preparedSavePanel {
             panel = preparedSavePanel
-            Self.exportLogger.notice("FTT_EXPORT_REG_04B save panel cache hit elapsed_ms=\(elapsedMS(since: startedAt))")
+            AppLogger.export.debug("FTT_EXPORT_REG_04B save panel cache hit elapsed_ms=\(elapsedMS(since: startedAt))")
         } else {
-            Self.exportLogger.notice("FTT_EXPORT_REG_04A save panel initialization started elapsed_ms=\(elapsedMS(since: startedAt))")
+            AppLogger.export.debug("FTT_EXPORT_REG_04A save panel initialization started elapsed_ms=\(elapsedMS(since: startedAt))")
             panel = makeSavePanel()
             preparedSavePanel = panel
-            Self.exportLogger.notice("FTT_EXPORT_REG_04B save panel initialization finished elapsed_ms=\(elapsedMS(since: startedAt))")
+            AppLogger.export.debug("FTT_EXPORT_REG_04B save panel initialization finished elapsed_ms=\(elapsedMS(since: startedAt))")
         }
         panel.nameFieldStringValue = "FloatingTaskTimer History.xlsx"
 
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             isPresentingSavePanel = false
-            Self.exportLogger.notice("FTT_EXPORT_REG_06 save panel completion response=\(response.rawValue) elapsed_ms=\(elapsedMS(since: startedAt))")
+            AppLogger.export.debug("FTT_EXPORT_REG_06 save panel completion response=\(response.rawValue) elapsed_ms=\(elapsedMS(since: startedAt))")
             guard response == .OK, let url = panel.url else { return }
             isExporting = true
             Task {
@@ -231,11 +230,11 @@ struct HistoryView: View {
                     }.value
                     isExporting = false
                     exportSuccessMessage = "Exported \(snapshot.groups.count) History task group(s)."
-                    Self.exportLogger.notice("FTT_EXPORT_REG_10 UI completion success elapsed_ms=\(elapsedMS(since: startedAt))")
+                    AppLogger.export.notice("Export completed groups=\(snapshot.groups.count) sessions=\(snapshot.sessionCount) elapsed_ms=\(elapsedMS(since: startedAt))")
                 } catch {
                     isExporting = false
                     errorMessage = error.localizedDescription
-                    Self.exportLogger.error("FTT_EXPORT_REG_10 UI completion failure elapsed_ms=\(elapsedMS(since: startedAt)) error=\(error.localizedDescription, privacy: .public)")
+                    AppLogger.export.error("Export failed elapsed_ms=\(elapsedMS(since: startedAt)) error=\(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -243,11 +242,11 @@ struct HistoryView: View {
         if let hostWindow = NSApp.keyWindow
             ?? NSApp.mainWindow
             ?? NSApp.windows.first(where: { $0.isVisible && $0 is NSPanel }) {
-            Self.exportLogger.notice("FTT_EXPORT_REG_05 save panel begin sheet elapsed_ms=\(elapsedMS(since: startedAt))")
+            AppLogger.export.debug("FTT_EXPORT_REG_05 save panel begin sheet elapsed_ms=\(elapsedMS(since: startedAt))")
             panel.beginSheetModal(for: hostWindow, completionHandler: completion)
         } else {
             NSApp.activate(ignoringOtherApps: true)
-            Self.exportLogger.notice("FTT_EXPORT_REG_05 save panel begin application modal elapsed_ms=\(elapsedMS(since: startedAt))")
+            AppLogger.export.debug("FTT_EXPORT_REG_05 save panel begin application modal elapsed_ms=\(elapsedMS(since: startedAt))")
             panel.begin(completionHandler: completion)
         }
     }
@@ -257,13 +256,15 @@ struct HistoryView: View {
         DispatchQueue.main.async {
             guard preparedSavePanel == nil, !isPresentingSavePanel else { return }
             preparedSavePanel = makeSavePanel()
-            Self.exportLogger.notice("FTT_EXPORT_PREWARM save panel ready")
+            AppLogger.export.debug("FTT_EXPORT_PREWARM save panel ready")
         }
     }
 
     private func makeSavePanel() -> NSSavePanel {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "xlsx")!]
+        if let xlsxType = UTType(filenameExtension: "xlsx") {
+            panel.allowedContentTypes = [xlsxType]
+        }
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         return panel

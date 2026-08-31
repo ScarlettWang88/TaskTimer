@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 @MainActor
 @Observable
@@ -50,14 +51,22 @@ final class SettingsStore {
             Keys.alwaysOnTopDefault: false,
         ])
 
-        appearance = AppAppearance(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
+        let storedAppearance = defaults.string(forKey: Keys.appearance) ?? ""
+        appearance = AppAppearance(rawValue: storedAppearance) ?? .system
+        if AppAppearance(rawValue: storedAppearance) == nil {
+            AppLogger.settings.notice("Invalid appearance preference; using system")
+        }
         showSeconds = defaults.bool(forKey: Keys.showSeconds)
-        timerDisplayFormat = TimerDisplayFormat(
-            rawValue: defaults.string(forKey: Keys.timerDisplayFormat) ?? ""
-        ) ?? .hoursMinutesSeconds
-        menuBarDisplayMode = MenuBarDisplayMode(
-            rawValue: defaults.string(forKey: Keys.menuBarDisplayMode) ?? ""
-        ) ?? .iconAndDuration
+        let storedTimerFormat = defaults.string(forKey: Keys.timerDisplayFormat) ?? ""
+        timerDisplayFormat = TimerDisplayFormat(rawValue: storedTimerFormat) ?? .hoursMinutesSeconds
+        if TimerDisplayFormat(rawValue: storedTimerFormat) == nil {
+            AppLogger.settings.notice("Invalid timer format preference; using HH:MM:SS")
+        }
+        let storedMenuMode = defaults.string(forKey: Keys.menuBarDisplayMode) ?? ""
+        menuBarDisplayMode = MenuBarDisplayMode(rawValue: storedMenuMode) ?? .iconAndDuration
+        if MenuBarDisplayMode(rawValue: storedMenuMode) == nil {
+            AppLogger.settings.notice("Invalid menu bar preference; using icon and duration")
+        }
         confirmBeforeReset = defaults.bool(forKey: Keys.confirmBeforeReset)
         confirmBeforeHistoryDelete = defaults.bool(forKey: Keys.confirmBeforeHistoryDelete)
         alwaysOnTopDefault = defaults.bool(forKey: Keys.alwaysOnTopDefault)

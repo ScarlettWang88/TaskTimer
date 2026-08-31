@@ -285,6 +285,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
             .help(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
+            .accessibilityLabel(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
 
             Button {
                 requestReset(task.id)
@@ -294,6 +295,7 @@ struct ContentView: View {
             .buttonStyle(.borderless)
             .disabled(task.status == .idle)
             .help("Reset Task")
+            .accessibilityLabel("Reset Task")
 
             Button {
                 perform { try taskStore.finish(taskID: task.id) }
@@ -303,6 +305,7 @@ struct ContentView: View {
             .buttonStyle(.borderless)
             .disabled(task.status == .idle)
             .help("Finish Task")
+            .accessibilityLabel("Finish Task")
 
             Button(role: .destructive) {
                 perform { try taskStore.delete(taskID: task.id) }
@@ -311,6 +314,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
             .help("Delete Task")
+            .accessibilityLabel("Delete Task")
         }
         .padding(.vertical, 5)
     }

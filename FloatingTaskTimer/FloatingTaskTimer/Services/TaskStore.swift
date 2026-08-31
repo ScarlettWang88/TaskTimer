@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 @MainActor
 @Observable
@@ -67,6 +68,7 @@ final class TaskStore {
 
     @discardableResult
     func createTask(name: String, startImmediately: Bool) throws -> UUID {
+        let snapshot = stateSnapshot()
         let taskID: UUID
         if tasks.count == 1, let placeholder = tasks.first, isEmptyPlaceholder(placeholder) {
             tasks[0].name = normalizedName(name)
@@ -78,18 +80,29 @@ final class TaskStore {
         }
         activeTaskID = taskID
 
-        if startImmediately {
-            try startOrResume(taskID: taskID)
-        } else {
-            try persistAll()
+        do {
+            if startImmediately {
+                try startOrResume(taskID: taskID)
+            } else {
+                try persistAll()
+            }
+        } catch {
+            restore(snapshot)
+            logPersistenceFailure("create", id: taskID, error: error)
+            throw error
         }
         return taskID
     }
 
     func selectTask(id: UUID) throws {
         guard tasks.contains(where: { $0.id == id }) else { return }
+        let previousID = activeTaskID
         activeTaskID = id
-        try persistence.saveActiveTaskID(id)
+        do { try persistence.saveActiveTaskID(id) } catch {
+            activeTaskID = previousID
+            logPersistenceFailure("select", id: id, error: error)
+            throw error
+        }
     }
 
     func selectAdjacentRunningTask(from taskID: UUID, offset: Int) throws {
@@ -103,6 +116,7 @@ final class TaskStore {
 
     @discardableResult
     func startOrResume(taskID: UUID) throws -> Bool {
+        let snapshot = stateSnapshot()
         guard let targetIndex = tasks.firstIndex(where: { $0.id == taskID }) else {
             return false
         }
@@ -111,7 +125,11 @@ final class TaskStore {
         guard targetStatus == .idle || targetStatus == .paused else {
             if targetStatus == .running {
                 activeTaskID = taskID
-                try persistence.saveActiveTaskID(taskID)
+                do { try persistence.saveActiveTaskID(taskID) } catch {
+                    restore(snapshot)
+                    logPersistenceFailure("selectRunning", id: taskID, error: error)
+                    throw error
+                }
             }
             return false
         }
@@ -130,29 +148,44 @@ final class TaskStore {
         }
 
         if changed {
-            try persistAll()
+            do { try persistAll() } catch {
+                restore(snapshot)
+                logPersistenceFailure("startOrResume", id: taskID, error: error)
+                throw error
+            }
         }
         return changed
     }
 
     @discardableResult
     func pause(taskID: UUID) throws -> Bool {
+        let snapshot = stateSnapshot()
         guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return false }
         guard timerEngine.pause(&tasks[index]) else { return false }
-        try persistAll()
+        do { try persistAll() } catch {
+            restore(snapshot)
+            logPersistenceFailure("pause", id: taskID, error: error)
+            throw error
+        }
         return true
     }
 
     @discardableResult
     func reset(taskID: UUID) throws -> Bool {
+        let snapshot = stateSnapshot()
         guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return false }
         guard timerEngine.reset(&tasks[index]) else { return false }
-        try persistAll()
+        do { try persistAll() } catch {
+            restore(snapshot)
+            logPersistenceFailure("reset", id: taskID, error: error)
+            throw error
+        }
         return true
     }
 
     @discardableResult
     func finish(taskID: UUID) throws -> Bool {
+        let snapshot = stateSnapshot()
         guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return false }
         guard timerEngine.finish(&tasks[index]) else { return false }
 
@@ -160,28 +193,43 @@ final class TaskStore {
         history.append(completed)
         sortHistory()
         activeTaskID = preferredActiveTaskID()
-        try persistAll(including: completed)
+        do { try persistAll(including: completed) } catch {
+            restore(snapshot)
+            logPersistenceFailure("finish", id: taskID, error: error)
+            throw error
+        }
+        AppLogger.history.notice("Finished session=\(taskID, privacy: .public) group=\(completed.taskGroupID, privacy: .public)")
         return true
     }
 
     func delete(taskID: UUID) throws {
+        let snapshot = stateSnapshot()
         guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return }
         tasks.remove(at: index)
-        try persistence.delete(id: taskID)
 
         if activeTaskID == taskID {
             activeTaskID = preferredActiveTaskID()
         }
-        try persistence.saveActiveTaskID(activeTaskID)
+        do { try persistence.delete(id: taskID, activeTaskID: activeTaskID) } catch {
+            restore(snapshot)
+            logPersistenceFailure("delete", id: taskID, error: error)
+            throw error
+        }
     }
 
     func rename(taskID: UUID, name: String) throws {
+        let snapshot = stateSnapshot()
         guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return }
         tasks[index].name = name
-        try persistence.save(tasks[index])
+        do { try persistence.save(tasks[index]) } catch {
+            restore(snapshot)
+            logPersistenceFailure("rename", id: taskID, error: error)
+            throw error
+        }
     }
 
     func renameHistoryGroup(id taskGroupID: UUID, name: String) throws {
+        let snapshot = stateSnapshot()
         let updatedName = normalizedName(name)
         var changedSessions: [TaskSession] = []
         for index in history.indices where history[index].taskGroupID == taskGroupID {
@@ -192,9 +240,14 @@ final class TaskStore {
             tasks[index].name = updatedName
             changedSessions.append(tasks[index])
         }
-        for session in changedSessions {
-            try persistence.save(session)
+        do {
+            try persistence.save(changedSessions, activeTaskID: activeTaskID)
+        } catch {
+            restore(snapshot)
+            logPersistenceFailure("renameHistory", id: taskGroupID, error: error)
+            throw error
         }
+        AppLogger.history.notice("Renamed history group=\(taskGroupID, privacy: .public) sessions=\(changedSessions.count)")
     }
 
     func deleteHistoryGroup(id taskGroupID: UUID) throws {
@@ -203,12 +256,19 @@ final class TaskStore {
 
     func deleteHistoryGroups(ids taskGroupIDs: Set<UUID>) throws {
         guard !taskGroupIDs.isEmpty else { return }
+        let snapshot = stateSnapshot()
         history.removeAll { taskGroupIDs.contains($0.taskGroupID) }
-        try persistence.delete(taskGroupIDs: taskGroupIDs)
+        do { try persistence.delete(taskGroupIDs: taskGroupIDs) } catch {
+            restore(snapshot)
+            AppLogger.persistence.error("History delete failed groups=\(taskGroupIDs.count) error=\(error.localizedDescription, privacy: .public)")
+            throw error
+        }
+        AppLogger.history.notice("Deleted history groups=\(taskGroupIDs.count)")
     }
 
     @discardableResult
     func continueHistoryGroup(id taskGroupID: UUID) throws -> UUID? {
+        let snapshot = stateSnapshot()
         guard let original = history
             .filter({ $0.taskGroupID == taskGroupID })
             .max(by: { ($0.completedAt ?? .distantPast) < ($1.completedAt ?? .distantPast) })
@@ -222,7 +282,12 @@ final class TaskStore {
         )
         tasks.append(continued)
         activeTaskID = continued.id
-        try persistAll()
+        do { try persistAll() } catch {
+            restore(snapshot)
+            logPersistenceFailure("continueHistory", id: continued.id, error: error)
+            throw error
+        }
+        AppLogger.history.notice("Continued group=\(taskGroupID, privacy: .public) newSession=\(continued.id, privacy: .public)")
         return continued.id
     }
 
@@ -268,7 +333,9 @@ final class TaskStore {
     }
 
     func historySessions(taskGroupID: UUID) -> [TaskSession] {
-        historyGroups.first { $0.taskGroupID == taskGroupID }?.sessions ?? []
+        history.filter { $0.taskGroupID == taskGroupID }.sorted {
+            ($0.completedAt ?? $0.createdAt) < ($1.completedAt ?? $1.createdAt)
+        }
     }
 
     func duration(for task: TaskSession) -> TimeInterval {
@@ -334,5 +401,21 @@ final class TaskStore {
             && task.firstStartedAt == nil
             && task.accumulatedActiveDuration == 0
             && task.accumulatedPausedDuration == 0
+    }
+
+    private typealias StateSnapshot = (tasks: [TaskSession], history: [TaskSession], activeTaskID: UUID?)
+
+    private func stateSnapshot() -> StateSnapshot {
+        (tasks, history, activeTaskID)
+    }
+
+    private func restore(_ snapshot: StateSnapshot) {
+        tasks = snapshot.tasks
+        history = snapshot.history
+        activeTaskID = snapshot.activeTaskID
+    }
+
+    private func logPersistenceFailure(_ operation: String, id: UUID, error: Error) {
+        AppLogger.persistence.error("Operation rollback operation=\(operation, privacy: .public) id=\(id, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
     }
 }

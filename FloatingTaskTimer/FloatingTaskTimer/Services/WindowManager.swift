@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import OSLog
 import SwiftUI
 
 @MainActor
@@ -81,6 +82,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
             guard let taskStore else { return }
             panel = makePanel(taskStore: taskStore)
             fitExpandedWindow(taskCount: taskStore.tasks.count)
+        } else {
+            AppLogger.window.debug("Reused retained timer window")
         }
 
         applyWindowBehavior()
@@ -90,6 +93,17 @@ final class WindowManager: NSObject, NSWindowDelegate {
     func showHistory() {
         navigation.selectedPage = .history
         showWindowOnCurrentSpace()
+    }
+
+    func presentPersistenceWarning(_ message: String) {
+        guard let panel else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Task Data Is Temporarily Unavailable"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: panel)
+        AppLogger.persistence.fault("Presented temporary-storage warning")
     }
 
     func showWindowOnCurrentSpace() {
@@ -103,6 +117,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         if isPinned {
             applyWindowBehavior()
             panel.makeKeyAndOrderFront(nil)
+            AppLogger.window.debug("Summoned pinned timer on current Space")
             return
         }
 
@@ -110,6 +125,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         panel.collectionBehavior = Self.summonedUnpinnedCollectionBehavior
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        AppLogger.window.debug("Summoned unpinned timer on current Space")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak panel] in
             guard let self, let panel, !self.isPinned else { return }
@@ -319,6 +335,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             fitExpandedWindow(taskCount: taskStore?.tasks.count ?? 0)
         }
         applyWindowBehavior()
+        AppLogger.window.debug("Window mode changed mode=\(newMode.rawValue, privacy: .public) pinned=\(self.isPinned)")
     }
 
     private func configurePanel(for mode: TimerWindowMode) {
@@ -387,6 +404,9 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let targetFrame: NSRect
 
         if let stored = storedFrame(for: mode) {
+            if !screens.contains(where: { Self.intersectionArea($0.visibleFrame, stored) > 0 }) {
+                AppLogger.window.notice("Repairing off-screen frame mode=\(mode.rawValue, privacy: .public)")
+            }
             targetFrame = Self.repairedFrame(
                 stored,
                 targetSize: targetSize,
@@ -477,6 +497,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         isFullScreen = true
+        AppLogger.window.debug("Native full-screen entered")
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
@@ -489,6 +510,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             self.pendingModeAfterFullScreen = nil
             applyMode(pendingModeAfterFullScreen)
         }
+        AppLogger.window.debug("Native full-screen exited mode=\(self.mode.rawValue, privacy: .public)")
     }
 
     @objc private func activeSpaceDidChange() {

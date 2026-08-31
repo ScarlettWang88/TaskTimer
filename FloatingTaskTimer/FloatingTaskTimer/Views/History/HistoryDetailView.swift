@@ -5,6 +5,9 @@ struct HistoryDetailView: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
+        let sessionNumbers = Dictionary(uniqueKeysWithValues: group.sessions.enumerated().map {
+            ($0.element.id, $0.offset + 1)
+        })
         VStack(alignment: .leading, spacing: 16) {
             Form {
                 LabeledContent("Task", value: group.name)
@@ -19,7 +22,7 @@ struct HistoryDetailView: View {
 
             Table(group.sessions) {
                 TableColumn("#") { session in
-                    Text("\((group.sessions.firstIndex(where: { $0.id == session.id }) ?? 0) + 1)")
+                    Text("\(sessionNumbers[session.id] ?? 1)")
                 }.width(28)
                 TableColumn("Date") { session in Text(date(session.completedAt)) }
                 TableColumn("Start") { session in Text(time(session.firstStartedAt)) }

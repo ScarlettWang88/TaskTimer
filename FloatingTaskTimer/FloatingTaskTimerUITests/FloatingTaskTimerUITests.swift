@@ -26,7 +26,10 @@ final class FloatingTaskTimerUITests: XCTestCase {
     func testExample() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchEnvironment["FTT_UI_TESTING"] = "1"
         app.launch()
+
+        XCTAssertTrue(app.buttons["New Task"].waitForExistence(timeout: 5))
 
         // Use XCTAssert and related functions to verify your tests produce the correct results.
         // XCUIAutomation Documentation
@@ -37,7 +40,9 @@ final class FloatingTaskTimerUITests: XCTestCase {
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            let app = XCUIApplication()
+            app.launchEnvironment["FTT_UI_TESTING"] = "1"
+            app.launch()
         }
     }
 }

@@ -4,6 +4,26 @@ import Testing
 
 @Suite("History Excel export")
 struct ExportServiceTests {
+    @Test("A manual QA workbook can be retained for Excel and Numbers validation")
+    func retainedManualQAWorkbook() throws {
+        let destination = ProcessInfo.processInfo.environment["FTT_QA_EXPORT_URL"]
+            ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("FloatingTaskTimer-QA.xlsx")
+                .path
+
+        let first = completed(name: "QA Report & Review", category: "Quality")
+        let second = completed(name: "QA Export – 中文", category: nil)
+        try ExportService().exportXLSX(
+            snapshot: exportSnapshot([
+                HistoryGroup(taskGroupID: first.taskGroupID, sessions: [first]),
+                HistoryGroup(taskGroupID: second.taskGroupID, sessions: [second]),
+            ]),
+            to: URL(fileURLWithPath: destination),
+            startedAt: ProcessInfo.processInfo.systemUptime
+        )
+        #expect(FileManager.default.fileExists(atPath: destination))
+    }
+
     @Test("Empty selection is rejected")
     func rejectsEmptySelection() {
         #expect(throws: ExportService.ExportError.self) {
@@ -90,6 +110,21 @@ struct ExportServiceTests {
         process.waitUntilExit()
 
         #expect(process.terminationStatus == 0)
+    }
+
+    @Test("A large selected snapshot produces consistent Tasks and Sessions sheets")
+    func largeSelectionSmokeTest() throws {
+        let groups = (0..<250).map { index -> HistoryGroup in
+            let session = completed(name: "Task \(index)", category: nil)
+            return HistoryGroup(taskGroupID: session.taskGroupID, sessions: [session])
+        }
+        let entries = try unzipStoredEntries(
+            ExportService().makeXLSX(snapshot: exportSnapshot(groups))
+        )
+        let tasks = String(decoding: try #require(entries["xl/worksheets/sheet1.xml"]), as: UTF8.self)
+        let sessions = String(decoding: try #require(entries["xl/worksheets/sheet2.xml"]), as: UTF8.self)
+        #expect(tasks.components(separatedBy: "<row ").count - 1 == 251)
+        #expect(sessions.components(separatedBy: "<row ").count - 1 == 251)
     }
 
     private var referenceDate: Date { Date(timeIntervalSince1970: 1_700_000_000) }

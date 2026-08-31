@@ -205,6 +205,9 @@ Requirements:
 - reuses the same `TaskStore`, timer state, History state, and window when switching modes
 - supports native macOS full-screen from Expanded Mode
 - preserves all timer and Pin state while entering or leaving native full-screen
+- cold-launching or reopening the application must summon its one retained timer window into the macOS Space that is active when the user opens it
+- opening the application must never navigate the user back to the desktop or another Space where the timer window was previously shown, even when macOS reports that window as already visible
+- this current-Space launch behavior applies with Pin ON and Pin OFF and must not create a duplicate window or mutate any timer
 
 Suggested implementation:
 
@@ -1866,7 +1869,7 @@ Implement:
 
 - Mini Mode
 - Expanded Mode
-- borderless, background-draggable Mini and Expanded presentation without title-bar or traffic-light chrome in normal window mode
+- borderless, background-draggable Mini presentation and standard macOS title-bar/traffic-light chrome in normal Expanded Mode
 - native macOS full-screen support from Expanded Mode
 - visible and accessible expand/collapse controls
 - deterministic current running-task selection in Mini Mode
@@ -1887,8 +1890,9 @@ Acceptance criteria:
 6. Entering or leaving native macOS full-screen does not reset Pin or timer state.
 7. Pin behavior continues to satisfy the existing desktop and full-screen Space requirements in both modes.
 8. Mode switching never creates a duplicate window, `TaskStore`, or `TimerEngine`.
-9. Mini and Expanded Mode show no unused title-bar area, remain draggable, and native full-screen transitions restore the borderless normal-window presentation on exit.
+9. Mini Mode has no unused title-bar area, Expanded Mode restores its standard macOS title bar on exit from full screen, and both modes remain draggable.
 10. Expanded Mode exposes all unfinished task rows, while opening the application summons the retained window into the current macOS Space.
+11. Cold launch and every application reopen remain in the user's currently active desktop or full-screen Space; an already-visible window in another Space must be moved/summoned rather than causing a Space switch.
 
 Commit:
 

@@ -143,6 +143,7 @@ struct MenuBarView: View {
                             }
                             .buttonStyle(.borderless)
                             .help(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
+                            .accessibilityLabel(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
                         }
                     }
                 }

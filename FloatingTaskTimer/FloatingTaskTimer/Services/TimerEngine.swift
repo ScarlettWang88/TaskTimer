@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 protocol TimeProviding {
     var now: Date { get }
@@ -17,7 +18,12 @@ struct TimerEngine {
 
     @discardableResult
     func start(_ session: inout TaskSession) -> Bool {
-        guard session.status == .idle else { return false }
+        guard session.status == .idle else {
+            let sessionID = session.id
+            let state = session.status.rawValue
+            AppLogger.timer.debug("Rejected start session=\(sessionID, privacy: .public) state=\(state, privacy: .public)")
+            return false
+        }
 
         let now = timeProvider.now
         session.status = .running
@@ -25,6 +31,9 @@ struct TimerEngine {
         session.lastResumedAt = now
         session.completedAt = nil
         session.pauseStartedAt = nil
+        session.activeIntervals = []
+        let sessionID = session.id
+        AppLogger.timer.debug("Transition session=\(sessionID, privacy: .public) idle->running")
         return true
     }
 
@@ -42,6 +51,8 @@ struct TimerEngine {
         session.status = .paused
         session.lastResumedAt = nil
         session.pauseStartedAt = now
+        let sessionID = session.id
+        AppLogger.timer.debug("Transition session=\(sessionID, privacy: .public) running->paused")
         return true
     }
 
@@ -56,7 +67,8 @@ struct TimerEngine {
         session.status = .running
         session.lastResumedAt = now
         session.pauseStartedAt = nil
-        session.activeIntervals = []
+        let sessionID = session.id
+        AppLogger.timer.debug("Transition session=\(sessionID, privacy: .public) paused->running")
         return true
     }
 
@@ -71,6 +83,9 @@ struct TimerEngine {
         session.accumulatedActiveDuration = 0
         session.accumulatedPausedDuration = 0
         session.pauseStartedAt = nil
+        session.activeIntervals = []
+        let sessionID = session.id
+        AppLogger.timer.debug("Transition session=\(sessionID, privacy: .public) ->idle reset")
         return true
     }
 
@@ -96,6 +111,8 @@ struct TimerEngine {
         session.lastResumedAt = nil
         session.pauseStartedAt = nil
         session.completedAt = now
+        let sessionID = session.id
+        AppLogger.timer.debug("Transition session=\(sessionID, privacy: .public) ->completed")
         return true
     }
 

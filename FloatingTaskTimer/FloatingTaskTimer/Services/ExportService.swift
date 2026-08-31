@@ -28,11 +28,6 @@ nonisolated struct HistoryExportSessionSnapshot: Sendable {
 }
 
 nonisolated struct ExportService: Sendable {
-    private static let logger = Logger(
-        subsystem: "whywhy.FloatingTaskTimer",
-        category: "HistoryExport"
-    )
-
     enum ExportError: LocalizedError {
         case noSelection
         case archiveTooLarge
@@ -48,11 +43,11 @@ nonisolated struct ExportService: Sendable {
     }
 
     func exportXLSX(snapshot: HistoryExportSnapshot, to url: URL, startedAt: TimeInterval) throws {
-        Self.logger.notice("FTT_EXPORT_REG_07 background export started elapsed_ms=\(Self.elapsedMS(since: startedAt))")
+        AppLogger.export.debug("FTT_EXPORT_REG_07 background export started elapsed_ms=\(Self.elapsedMS(since: startedAt))")
         let data = try makeXLSX(snapshot: snapshot)
-        Self.logger.notice("FTT_EXPORT_REG_08 workbook generation finished bytes=\(data.count) elapsed_ms=\(Self.elapsedMS(since: startedAt))")
+        AppLogger.export.debug("FTT_EXPORT_REG_08 workbook generation finished bytes=\(data.count) elapsed_ms=\(Self.elapsedMS(since: startedAt))")
         try data.write(to: url, options: .atomic)
-        Self.logger.notice("FTT_EXPORT_REG_09 file write finished elapsed_ms=\(Self.elapsedMS(since: startedAt))")
+        AppLogger.export.debug("FTT_EXPORT_REG_09 file write finished elapsed_ms=\(Self.elapsedMS(since: startedAt))")
     }
 
     func makeXLSX(snapshot: HistoryExportSnapshot) throws -> Data {
@@ -133,7 +128,8 @@ nonisolated struct ExportService: Sendable {
         var result = ""
         while value > 0 {
             value -= 1
-            result.insert(Character(UnicodeScalar(65 + value % 26)!), at: result.startIndex)
+            let character = UnicodeScalar(65 + value % 26).map(Character.init) ?? "A"
+            result.insert(character, at: result.startIndex)
             value /= 26
         }
         return result

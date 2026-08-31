@@ -38,38 +38,102 @@ final class PersistedTaskSession {
     }
 
     var taskSession: TaskSession? {
-        guard
-            let status = TaskStatus(rawValue: statusRawValue),
-            accumulatedActiveDuration.isFinite,
-            accumulatedActiveDuration >= 0,
-            accumulatedPausedDuration.isFinite,
-            accumulatedPausedDuration >= 0,
-            hasRequiredTimestamps(for: status)
-        else {
-            return nil
+        repairedTaskSession().session
+    }
+
+    func repairedTaskSession() -> (session: TaskSession, changed: Bool) {
+        var changed = false
+        var status = TaskStatus(rawValue: statusRawValue) ?? .idle
+        if TaskStatus(rawValue: statusRawValue) == nil {
+            statusRawValue = status.rawValue
+            changed = true
         }
 
-        let activeIntervals = (try? JSONDecoder().decode(
-            [TaskActiveInterval].self,
-            from: activeIntervalsData
-        )) ?? []
+        let safeActiveDuration = accumulatedActiveDuration.isFinite
+            ? max(0, accumulatedActiveDuration) : 0
+        let safePausedDuration = accumulatedPausedDuration.isFinite
+            ? max(0, accumulatedPausedDuration) : 0
+        if safeActiveDuration != accumulatedActiveDuration {
+            accumulatedActiveDuration = safeActiveDuration
+            changed = true
+        }
+        if safePausedDuration != accumulatedPausedDuration {
+            accumulatedPausedDuration = safePausedDuration
+            changed = true
+        }
 
-        return TaskSession(
+        var safeFirstStartedAt = firstStartedAt
+        var safeLastResumedAt = lastResumedAt
+        var safePauseStartedAt = pauseStartedAt
+        var safeCompletedAt = completedAt
+        switch status {
+        case .idle:
+            break
+        case .running:
+            if safeFirstStartedAt == nil {
+                safeFirstStartedAt = safeLastResumedAt ?? createdAt
+                changed = true
+            }
+            if safeLastResumedAt == nil {
+                status = .paused
+                safePauseStartedAt = updatedAt
+                statusRawValue = status.rawValue
+                changed = true
+            }
+        case .paused:
+            if safeFirstStartedAt == nil {
+                safeFirstStartedAt = createdAt
+                changed = true
+            }
+            if safePauseStartedAt == nil {
+                safePauseStartedAt = updatedAt
+                changed = true
+            }
+        case .completed:
+            if safeCompletedAt == nil {
+                safeCompletedAt = updatedAt
+                changed = true
+            }
+            safeLastResumedAt = nil
+            safePauseStartedAt = nil
+        }
+
+        let decodedIntervals: [TaskActiveInterval]
+        do {
+            decodedIntervals = try JSONDecoder().decode([TaskActiveInterval].self, from: activeIntervalsData)
+        } catch {
+            decodedIntervals = []
+            if !activeIntervalsData.isEmpty { changed = true }
+        }
+        let safeIntervals = decodedIntervals.map {
+            TaskActiveInterval(startedAt: $0.startedAt, endedAt: max($0.startedAt, $0.endedAt))
+        }
+        if safeIntervals != decodedIntervals { changed = true }
+
+        let safeGroupID = taskGroupID ?? sessionID
+        if taskGroupID == nil {
+            taskGroupID = safeGroupID
+            changed = true
+        }
+
+        let session = TaskSession(
             id: sessionID,
-            taskGroupID: taskGroupID ?? UUID(),
+            taskGroupID: safeGroupID,
             name: name,
             category: category,
             status: status,
             createdAt: createdAt,
-            firstStartedAt: firstStartedAt,
-            lastResumedAt: lastResumedAt,
-            completedAt: completedAt,
-            accumulatedActiveDuration: accumulatedActiveDuration,
-            accumulatedPausedDuration: accumulatedPausedDuration,
-            pauseStartedAt: pauseStartedAt,
-            activeIntervals: activeIntervals,
+            firstStartedAt: safeFirstStartedAt,
+            lastResumedAt: safeLastResumedAt,
+            completedAt: safeCompletedAt,
+            accumulatedActiveDuration: safeActiveDuration,
+            accumulatedPausedDuration: safePausedDuration,
+            pauseStartedAt: safePauseStartedAt,
+            activeIntervals: safeIntervals,
             continuedFromSessionID: continuedFromSessionID
         )
+        if changed { update(from: session, at: updatedAt) }
+        return (session, changed)
     }
 
     func update(from session: TaskSession, at date: Date = Date()) {
@@ -90,16 +154,4 @@ final class PersistedTaskSession {
         updatedAt = date
     }
 
-    private func hasRequiredTimestamps(for status: TaskStatus) -> Bool {
-        switch status {
-        case .idle:
-            return true
-        case .running:
-            return firstStartedAt != nil && lastResumedAt != nil
-        case .paused:
-            return firstStartedAt != nil && pauseStartedAt != nil
-        case .completed:
-            return completedAt != nil
-        }
-    }
 }

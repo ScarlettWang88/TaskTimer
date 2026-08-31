@@ -18,16 +18,18 @@ struct ContentView: View {
     @Bindable var taskStore: TaskStore
     @Bindable var windowManager: WindowManager
     @Bindable var navigation: AppNavigation
+    @Bindable var settings: SettingsStore
     @State private var newTaskName = ""
     @State private var isCreatingTask = false
     @State private var persistenceErrorMessage: String?
+    @State private var resetTargetID: UUID?
 
     var body: some View {
         VStack(spacing: 20) {
             titleBar
 
             if navigation.selectedPage == .history {
-                HistoryView(taskStore: taskStore)
+                HistoryView(taskStore: taskStore, settings: settings)
             } else {
                 if let activeTask = taskStore.activeTask {
                     currentTask(taskStore: taskStore, task: activeTask)
@@ -56,6 +58,13 @@ struct ContentView: View {
         } message: {
             Text(persistenceErrorMessage ?? "The tasks could not be saved.")
         }
+        .alert("Reset timer?", isPresented: resetIsPresented) {
+            Button("Cancel", role: .cancel) { resetTargetID = nil }
+            Button("Reset", role: .destructive, action: confirmReset)
+        } message: {
+            Text("The recorded duration for this unfinished task will return to zero.")
+        }
+        .preferredColorScheme(settings.appearance.colorScheme)
     }
 
     private var titleBar: some View {
@@ -121,13 +130,13 @@ struct ContentView: View {
                 .accessibilityLabel("Current task name")
 
             TimelineView(.periodic(from: .now, by: 1)) { _ in
-                Text(DurationFormatter.clock(taskStore.duration(for: task)))
+                Text(settings.format(taskStore.duration(for: task)))
                     .font(.system(size: 52, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel("Elapsed time")
-                    .accessibilityValue(DurationFormatter.clock(taskStore.duration(for: task)))
+                    .accessibilityValue(settings.format(taskStore.duration(for: task)))
             }
 
             HStack(spacing: 12) {
@@ -147,7 +156,7 @@ struct ContentView: View {
                 .disabled(task.status != .running && task.status != .paused)
 
                 Button("Reset") {
-                    perform { try taskStore.reset(taskID: task.id) }
+                    requestReset(task.id)
                 }
                 .disabled(task.status == .idle)
 
@@ -208,7 +217,7 @@ struct ContentView: View {
 
                     Spacer()
 
-                    Text(DurationFormatter.clock(taskStore.duration(for: task)))
+                    Text(settings.format(taskStore.duration(for: task)))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
@@ -229,7 +238,7 @@ struct ContentView: View {
             .help(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
 
             Button {
-                perform { try taskStore.reset(taskID: task.id) }
+                requestReset(task.id)
             } label: {
                 Image(systemName: "arrow.counterclockwise")
             }
@@ -267,7 +276,7 @@ struct ContentView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text(DurationFormatter.clock(session.accumulatedActiveDuration))
+            Text(settings.format(session.accumulatedActiveDuration))
                 .monospacedDigit()
         }
     }
@@ -304,6 +313,27 @@ struct ContentView: View {
             get: { persistenceErrorMessage != nil },
             set: { if !$0 { persistenceErrorMessage = nil } }
         )
+    }
+
+    private var resetIsPresented: Binding<Bool> {
+        Binding(
+            get: { resetTargetID != nil },
+            set: { if !$0 { resetTargetID = nil } }
+        )
+    }
+
+    private func requestReset(_ taskID: UUID) {
+        if settings.confirmBeforeReset {
+            resetTargetID = taskID
+        } else {
+            perform { try taskStore.reset(taskID: taskID) }
+        }
+    }
+
+    private func confirmReset() {
+        guard let taskID = resetTargetID else { return }
+        perform { try taskStore.reset(taskID: taskID) }
+        resetTargetID = nil
     }
 
     private func taskNameBinding(_ store: TaskStore, _ taskID: UUID) -> Binding<String> {

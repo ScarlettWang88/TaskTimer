@@ -5,18 +5,31 @@ struct FloatingTaskTimerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: menuBarIsInserted) {
             MenuBarView(
                 taskStore: appDelegate.taskStore,
-                windowManager: appDelegate.windowManager
+                windowManager: appDelegate.windowManager,
+                settings: appDelegate.settingsStore
             )
         } label: {
-            MenuBarLabelView(taskStore: appDelegate.taskStore)
+            MenuBarLabelView(
+                taskStore: appDelegate.taskStore,
+                settings: appDelegate.settingsStore
+            )
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            EmptyView()
+            SettingsView(settings: appDelegate.settingsStore)
         }
+    }
+
+    private var menuBarIsInserted: Binding<Bool> {
+        Binding(
+            get: { appDelegate.settingsStore.menuBarDisplayMode != .hidden },
+            set: { isInserted in
+                appDelegate.settingsStore.menuBarDisplayMode = isInserted ? .iconAndDuration : .hidden
+            }
+        )
     }
 }

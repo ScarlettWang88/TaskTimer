@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class WindowManager: NSObject, NSWindowDelegate {
-    static let pinnedPreferenceKey = "isTimerPinned"
+    static let pinnedPreferenceKey = SettingsStore.Keys.currentPin
     static let pinnedCollectionBehavior: NSWindow.CollectionBehavior = [
         .canJoinAllSpaces,
         .canJoinAllApplications,
@@ -19,6 +19,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private let taskStore: TaskStore?
     @ObservationIgnored private let navigation: AppNavigation
+    @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private var panel: NSPanel?
 
     private let frameAutosaveName = "FloatingTimerPanelFrame"
@@ -26,12 +27,21 @@ final class WindowManager: NSObject, NSWindowDelegate {
     init(
         taskStore: TaskStore? = nil,
         navigation: AppNavigation,
+        settings: SettingsStore,
         userDefaults: UserDefaults = .standard
     ) {
         self.taskStore = taskStore
         self.navigation = navigation
+        self.settings = settings
         self.userDefaults = userDefaults
-        isPinned = userDefaults.bool(forKey: Self.pinnedPreferenceKey)
+        let hasRuntimePin = userDefaults.object(forKey: Self.pinnedPreferenceKey) != nil
+        let initialPin = hasRuntimePin
+            ? userDefaults.bool(forKey: Self.pinnedPreferenceKey)
+            : settings.alwaysOnTopDefault
+        isPinned = initialPin
+        if !hasRuntimePin {
+            userDefaults.set(initialPin, forKey: Self.pinnedPreferenceKey)
+        }
         super.init()
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -43,7 +53,12 @@ final class WindowManager: NSObject, NSWindowDelegate {
     }
 
     convenience init(userDefaults: UserDefaults = .standard) {
-        self.init(taskStore: nil, navigation: AppNavigation(), userDefaults: userDefaults)
+        self.init(
+            taskStore: nil,
+            navigation: AppNavigation(),
+            settings: SettingsStore(defaults: userDefaults),
+            userDefaults: userDefaults
+        )
     }
 
     func showWindow() {
@@ -124,8 +139,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let rootView = ContentView(
             taskStore: taskStore,
             windowManager: self,
-            navigation: navigation
+            navigation: navigation,
+            settings: settings
         )
+        .preferredColorScheme(settings.appearance.colorScheme)
         panel.contentViewController = NSHostingController(rootView: rootView)
 
         restoreFrame(for: panel)

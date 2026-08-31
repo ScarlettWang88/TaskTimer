@@ -27,6 +27,33 @@ struct WindowManagerTests {
         #expect(!defaults.bool(forKey: WindowManager.pinnedPreferenceKey))
     }
 
+    @Test("Always on Top default seeds Pin only when no runtime Pin exists")
+    func alwaysOnTopDefaultPrecedence() {
+        let suiteName = "WindowManagerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        settings.alwaysOnTopDefault = true
+        let seeded = WindowManager(
+            taskStore: nil,
+            navigation: AppNavigation(),
+            settings: settings,
+            userDefaults: defaults
+        )
+        #expect(seeded.isPinned)
+
+        seeded.setPinned(false)
+        settings.alwaysOnTopDefault = true
+        let restored = WindowManager(
+            taskStore: nil,
+            navigation: AppNavigation(),
+            settings: settings,
+            userDefaults: defaults
+        )
+        #expect(!restored.isPinned)
+    }
+
     @Test("Pinned window joins other applications in full-screen Spaces")
     func pinnedWindowCollectionBehavior() {
         let behavior = WindowManager.pinnedCollectionBehavior

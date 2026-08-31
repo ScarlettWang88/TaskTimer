@@ -7,6 +7,7 @@ struct HistoryView: View {
     private static let exportLogger = Logger(subsystem: "whywhy.FloatingTaskTimer", category: "HistoryExport")
 
     @Bindable var taskStore: TaskStore
+    @Bindable var settings: SettingsStore
     @State private var selectedIDs = Set<UUID>()
     @State private var detailGroup: HistoryGroup?
     @State private var renameTargetID: UUID?
@@ -37,10 +38,10 @@ struct HistoryView: View {
                     TableColumn("Last Activity") { Text(completionDate($0.lastActivityAt)) }
                         .width(min: 105, ideal: 135)
                     TableColumn("Active") {
-                        Text(DurationFormatter.clock($0.totalActiveDuration)).monospacedDigit()
+                        Text(settings.format($0.totalActiveDuration)).monospacedDigit()
                     }.width(min: 75, ideal: 90)
                     TableColumn("Paused") {
-                        Text(DurationFormatter.clock($0.totalPausedDuration)).monospacedDigit()
+                        Text(settings.format($0.totalPausedDuration)).monospacedDigit()
                     }.width(min: 75, ideal: 90)
                     TableColumn("Sessions") { Text("\($0.sessionCount)") }.width(60)
                 }
@@ -50,7 +51,7 @@ struct HistoryView: View {
                         Button("Rename") { beginRename(id: id) }
                         Button("View Log") { openGroup(id: id) }
                         Divider()
-                        Button("Delete", role: .destructive) { deleteTargetID = id }
+                        Button("Delete", role: .destructive) { requestDelete(id) }
                     }
                 } primaryAction: { ids in
                     guard let id = singleID(from: ids) else { return }
@@ -60,7 +61,7 @@ struct HistoryView: View {
         }
         .sheet(item: $detailGroup) { group in
             NavigationStack {
-                HistoryDetailView(group: group)
+                HistoryDetailView(group: group, settings: settings)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { detailGroup = nil }
@@ -83,6 +84,7 @@ struct HistoryView: View {
             selectedIDs.formIntersection(availableIDs)
         }
         .onAppear(perform: prepareSavePanelIfNeeded)
+        .preferredColorScheme(settings.appearance.colorScheme)
     }
 
     private var renameSheet: some View {
@@ -133,6 +135,15 @@ struct HistoryView: View {
         perform { try taskStore.deleteHistoryGroup(id: id) }
         selectedIDs.remove(id)
         deleteTargetID = nil
+    }
+
+    private func requestDelete(_ id: UUID) {
+        if settings.confirmBeforeHistoryDelete {
+            deleteTargetID = id
+        } else {
+            perform { try taskStore.deleteHistoryGroup(id: id) }
+            selectedIDs.remove(id)
+        }
     }
 
     private var deleteMessage: String {

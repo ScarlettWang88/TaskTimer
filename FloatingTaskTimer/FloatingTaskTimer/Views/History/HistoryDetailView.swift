@@ -2,13 +2,14 @@ import SwiftUI
 
 struct HistoryDetailView: View {
     let group: HistoryGroup
+    @Bindable var settings: SettingsStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Form {
                 LabeledContent("Task", value: group.name)
-                LabeledContent("Total Active Time", value: DurationFormatter.clock(group.totalActiveDuration))
-                LabeledContent("Total Paused Time", value: DurationFormatter.clock(group.totalPausedDuration))
+                LabeledContent("Total Active Time", value: settings.format(group.totalActiveDuration))
+                LabeledContent("Total Paused Time", value: settings.format(group.totalPausedDuration))
                 LabeledContent("Sessions", value: "\(group.sessionCount)")
             }
             .formStyle(.grouped)
@@ -24,10 +25,10 @@ struct HistoryDetailView: View {
                 TableColumn("Start") { session in Text(time(session.firstStartedAt)) }
                 TableColumn("Finish") { session in Text(time(session.completedAt)) }
                 TableColumn("Active") { session in
-                    Text(DurationFormatter.clock(session.accumulatedActiveDuration)).monospacedDigit()
+                    Text(settings.format(session.accumulatedActiveDuration)).monospacedDigit()
                 }
                 TableColumn("Paused") { session in
-                    Text(DurationFormatter.clock(session.accumulatedPausedDuration)).monospacedDigit()
+                    Text(settings.format(session.accumulatedPausedDuration)).monospacedDigit()
                 }
                 TableColumn("Status") { session in Text(session.status.rawValue.capitalized) }
             }

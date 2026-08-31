@@ -4,20 +4,23 @@ import SwiftUI
 
 struct MenuBarLabelView: View {
     @Bindable var taskStore: TaskStore
+    @Bindable var settings: SettingsStore
     @State private var refreshDate = Date()
     private let refreshTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         let _ = refreshDate
         Group {
-            if let task = taskStore.menuBarTask, task.status == .running {
+            if settings.menuBarDisplayMode == .iconAndDuration,
+               let task = taskStore.menuBarTask,
+               task.status == .running {
                 HStack(spacing: 4) {
                     Image(systemName: "timer")
-                    Text(DurationFormatter.compact(taskStore.duration(for: task)))
+                    Text(settings.formatMenuBar(taskStore.duration(for: task)))
                         .monospacedDigit()
                 }
                 .accessibilityLabel("Running timer")
-                .accessibilityValue(DurationFormatter.clock(taskStore.duration(for: task)))
+                .accessibilityValue(settings.format(taskStore.duration(for: task)))
             } else {
                 Image(systemName: "timer")
                     .accessibilityLabel("Floating Task Timer")
@@ -30,6 +33,7 @@ struct MenuBarLabelView: View {
 struct MenuBarView: View {
     @Bindable var taskStore: TaskStore
     let windowManager: WindowManager
+    @Bindable var settings: SettingsStore
 
     @State private var newTaskName = ""
     @State private var errorMessage: String?
@@ -41,7 +45,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let current = taskStore.menuBarTask {
                 currentTask(current)
-                otherRunningTasks(excluding: current.id)
+                otherTasks(excluding: current.id)
             } else {
                 Text("No unfinished tasks")
                     .foregroundStyle(.secondary)
@@ -64,6 +68,7 @@ struct MenuBarView: View {
         } message: {
             Text(errorMessage ?? "The task change could not be saved.")
         }
+        .preferredColorScheme(settings.appearance.colorScheme)
     }
 
     private func currentTask(_ task: TaskSession) -> some View {
@@ -74,7 +79,7 @@ struct MenuBarView: View {
             Text(task.name.isEmpty ? "Untitled Task" : task.name)
                 .font(.headline)
                 .lineLimit(1)
-            Text(DurationFormatter.clock(taskStore.duration(for: task)))
+            Text(settings.format(taskStore.duration(for: task)))
                 .font(.title2.monospacedDigit())
 
             HStack {
@@ -92,31 +97,61 @@ struct MenuBarView: View {
     }
 
     @ViewBuilder
-    private func otherRunningTasks(excluding currentID: UUID) -> some View {
-        let others = taskStore.tasks.filter { $0.status == .running && $0.id != currentID }
+    private func otherTasks(excluding currentID: UUID) -> some View {
+        let others = taskStore.tasks.filter { $0.id != currentID }
         if !others.isEmpty {
             Divider()
-            Text("OTHER RUNNING TASKS")
+            Text("OTHER TASKS")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            ForEach(others) { task in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(task.name).lineLimit(1)
-                        Text(DurationFormatter.clock(taskStore.duration(for: task)))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(others) { task in
+                        HStack {
+                            Button {
+                                perform { try taskStore.selectTask(id: task.id) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(task.name.isEmpty ? "Untitled Task" : task.name).lineLimit(1)
+                                    HStack(spacing: 6) {
+                                        Text(statusTitle(task.status))
+                                        Text(settings.format(taskStore.duration(for: task)))
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                if task.status == .running {
+                                    perform { try taskStore.pause(taskID: task.id) }
+                                } else {
+                                    perform { try taskStore.startOrResume(taskID: task.id) }
+                                }
+                            } label: {
+                                Image(systemName: task.status == .running ? "pause.fill" : "play.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
+                        }
                     }
-                    Spacer()
-                    Button {
-                        perform { try taskStore.pause(taskID: task.id) }
-                    } label: {
-                        Image(systemName: "pause.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Pause Task")
                 }
+                .frame(maxWidth: .infinity)
             }
+            .frame(height: min(CGFloat(others.count) * 48, 170))
+        }
+    }
+
+    private func statusTitle(_ status: TaskStatus) -> String {
+        switch status {
+        case .idle: "Idle"
+        case .running: "Running"
+        case .paused: "Paused"
+        case .completed: "Completed"
         }
     }
 

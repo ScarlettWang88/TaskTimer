@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let modelContainer: ModelContainer
     let taskStore: TaskStore
+    let settingsStore: SettingsStore
     let navigation: AppNavigation
     let windowManager: WindowManager
 
@@ -18,8 +19,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let environment = Self.makeEnvironment()
         modelContainer = environment.container
         taskStore = environment.store
+        settingsStore = SettingsStore()
         navigation = AppNavigation()
-        windowManager = WindowManager(taskStore: taskStore, navigation: navigation)
+        windowManager = WindowManager(
+            taskStore: taskStore,
+            navigation: navigation,
+            settings: settingsStore
+        )
         super.init()
     }
 

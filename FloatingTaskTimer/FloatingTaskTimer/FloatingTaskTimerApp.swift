@@ -7,19 +7,40 @@
 
 import SwiftUI
 import SwiftData
+import OSLog
 
 @main
 struct FloatingTaskTimerApp: App {
+    private static let logger = Logger(
+        subsystem: "whywhy.FloatingTaskTimer",
+        category: "Persistence"
+    )
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            PersistedTaskSession.self,
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let modelConfiguration = ModelConfiguration(
+            "TaskSessions",
+            schema: schema,
+            isStoredInMemoryOnly: false
+        )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            logger.error("Could not open the persistent store: \(error.localizedDescription, privacy: .public)")
+
+            do {
+                let fallbackConfiguration = ModelConfiguration(
+                    "TaskSessionsFallback",
+                    schema: schema,
+                    isStoredInMemoryOnly: true
+                )
+                return try ModelContainer(for: schema, configurations: [fallbackConfiguration])
+            } catch {
+                fatalError("Could not create fallback ModelContainer: \(error)")
+            }
         }
     }()
 

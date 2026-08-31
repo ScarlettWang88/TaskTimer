@@ -1,7 +1,11 @@
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var session = TaskSession(name: "")
+    @State private var hasRestoredSession = false
+    @State private var persistenceErrorMessage: String?
 
     private let timerEngine = TimerEngine()
 
@@ -18,6 +22,12 @@ struct ContentView: View {
         }
         .padding(32)
         .frame(minWidth: 440, idealWidth: 500, minHeight: 330)
+        .task(restoreSession)
+        .alert("Persistence Error", isPresented: persistenceErrorIsPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(persistenceErrorMessage ?? "The task could not be saved.")
+        }
     }
 
     private var header: some View {
@@ -27,8 +37,12 @@ struct ContentView: View {
 
             TextField("What are you working on?", text: $session.name)
                 .textFieldStyle(.roundedBorder)
-                .disabled(session.status != .idle)
+                .disabled(session.status != .idle || !hasRestoredSession)
                 .onSubmit(start)
+                .onChange(of: session.name) {
+                    guard hasRestoredSession, session.status == .idle else { return }
+                    persistSession()
+                }
                 .accessibilityLabel("Task name")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -52,16 +66,26 @@ struct ContentView: View {
         HStack(spacing: 12) {
             Button("Start", action: start)
                 .keyboardShortcut(.defaultAction)
-                .disabled(session.status != .idle)
+                .disabled(session.status != .idle || !hasRestoredSession)
 
             Button(pauseResumeTitle, action: pauseOrResume)
-                .disabled(session.status != .running && session.status != .paused)
+                .disabled(
+                    !hasRestoredSession
+                        || (session.status != .running && session.status != .paused)
+                )
 
             Button("Reset", action: reset)
-                .disabled(session.status == .idle || session.status == .completed)
+                .disabled(
+                    !hasRestoredSession
+                        || session.status == .idle
+                        || session.status == .completed
+                )
 
             Button("Finish", action: finish)
-                .disabled(session.status != .running && session.status != .paused)
+                .disabled(
+                    !hasRestoredSession
+                        || (session.status != .running && session.status != .paused)
+                )
         }
         .controlSize(.large)
     }
@@ -95,6 +119,17 @@ struct ContentView: View {
         session.status == .paused ? "Resume" : "Pause"
     }
 
+    private var persistenceErrorIsPresented: Binding<Bool> {
+        Binding(
+            get: { persistenceErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    persistenceErrorMessage = nil
+                }
+            }
+        )
+    }
+
     @ViewBuilder
     private func summaryRow(_ label: String, value: String) -> some View {
         GridRow {
@@ -110,30 +145,66 @@ struct ContentView: View {
 
         let trimmedName = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
         session.name = trimmedName.isEmpty ? "Untitled Task" : trimmedName
-        timerEngine.start(&session)
+        if timerEngine.start(&session) {
+            persistSession()
+        }
     }
 
     private func pauseOrResume() {
         switch session.status {
         case .running:
-            timerEngine.pause(&session)
+            if timerEngine.pause(&session) {
+                persistSession()
+            }
         case .paused:
-            timerEngine.resume(&session)
+            if timerEngine.resume(&session) {
+                persistSession()
+            }
         case .idle, .completed:
             break
         }
     }
 
     private func reset() {
-        timerEngine.reset(&session)
+        if timerEngine.reset(&session) {
+            persistSession()
+        }
     }
 
     private func finish() {
-        timerEngine.finish(&session)
+        if timerEngine.finish(&session) {
+            persistSession()
+        }
     }
 
     private func startAnotherTask() {
         session = TaskSession(name: "")
+        persistSession()
+    }
+
+    private func restoreSession() {
+        guard !hasRestoredSession else { return }
+
+        do {
+            let store = TaskSessionStore(modelContext: modelContext)
+            if let restoredSession = try store.load() {
+                session = restoredSession
+            } else {
+                try store.save(session)
+            }
+        } catch {
+            persistenceErrorMessage = "The saved task could not be restored. Changes may not survive relaunch."
+        }
+
+        hasRestoredSession = true
+    }
+
+    private func persistSession() {
+        do {
+            try TaskSessionStore(modelContext: modelContext).save(session)
+        } catch {
+            persistenceErrorMessage = "The current task could not be saved. Changes may not survive relaunch."
+        }
     }
 
     private func formattedDuration(_ duration: TimeInterval) -> String {
@@ -148,4 +219,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .modelContainer(for: PersistedTaskSession.self, inMemory: true)
 }

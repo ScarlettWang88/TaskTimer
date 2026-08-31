@@ -183,13 +183,16 @@ If the app is quit or crashes, every task state must restore accurately. All tas
 
 # 4.1 Floating Timer Window
 
-The app must provide a small floating timer window.
+The app must provide one retained floating timer window with two explicit display modes:
+
+- **Expanded Mode:** the complete application interface
+- **Mini Mode:** an extremely compact floating timer focused on one relevant task
 
 Requirements:
 
 - draggable anywhere on screen
-- compact size
-- remembers last window position
+- provides visible controls to switch between Mini and Expanded Mode
+- remembers and validates the appropriate window position for each mode
 - supports Light Mode
 - supports Dark Mode
 - supports System appearance
@@ -199,6 +202,9 @@ Requirements:
 - follows the user across macOS desktop Spaces while Pin is enabled
 - remains available in supported full-screen application Spaces while Pin is enabled
 - uses one retained window rather than creating a window for each Space
+- reuses the same `TaskStore`, timer state, History state, and window when switching modes
+- supports native macOS full-screen from Expanded Mode
+- preserves all timer and Pin state while entering or leaving native full-screen
 
 Suggested implementation:
 
@@ -449,42 +455,76 @@ This architecture prevents timer drift.
 
 ---
 
-# 4.9 Compact Mode
+# 4.9 Mini Mode
 
-Compact floating mode example:
+Mini Mode is an extremely compact floating timer that occupies as little screen space as practical while keeping the currently relevant task visible.
 
-```text
-Prepare report               📌
-00:42:18
-
-Pause       Finish
-```
-
-Or multi-task compact mode:
+Example:
 
 ```text
-Prepare report      42:18   ⏸
-Reply emails        18:32   ▶
-Data analysis     1:12:05   ▶
+Prepare report        📌
+00:42:18          ⏸   ↗
 ```
+
+Requirements:
+
+- primarily display the current task name and live elapsed duration
+- use monospaced digits for elapsed time
+- preserve compact Pause/Resume access
+- preserve Pin control
+- provide a visible control to return to Expanded Mode
+- omit the standard macOS title bar and traffic-light window controls so content fits the smallest practical window
+- remain draggable by its background even without a visible title bar
+- omit History, Settings, analytics, large navigation, and the full task list
+- use exactly the same shared application and timer state as Expanded Mode
+- never create another `TimerEngine`, `TaskStore`, or window
+
+Because multiple tasks may run simultaneously, Mini Mode must choose its displayed task deterministically:
+
+1. Use the currently selected or focused task if it is running.
+2. Otherwise use the most recently interacted-with running task.
+3. If only one task is running, show that task.
+4. If no task is running, show the selected paused or idle task where appropriate.
+5. If no suitable task exists, show a minimal `No active task` state.
+
+Mini Mode must not sum multiple running timers. When more than one task is running, provide a minimal task switcher such as previous/next controls or a small native menu. Do not expand the complete task list inside Mini Mode.
+
+When Mini Mode is entered for the first time, place it near the top-right corner of the current screen's `visibleFrame`, leaving a small margin and respecting the menu bar and Dock. Prefer the screen containing the current timer window; use `NSScreen.main` only as a fallback. Do not hardcode screen dimensions.
+
+After the user moves the Mini window:
+
+- persist its last position
+- restore it on future Mini Mode entry or relaunch when valid
+- detect disconnected or rearranged displays
+- repair off-screen positions into an available screen's visible frame
+- prefer the top-right fallback when the saved screen or position is no longer valid
 
 ---
 
 # 4.10 Expanded Mode
 
-Example:
+Expanded Mode is the full application interface.
 
-```text
-Prepare client report               📌
+Requirements:
 
-          00:42:18
+- show the complete task interface
+- support multiple simultaneously running tasks and their normal controls
+- show every unfinished task row in the Expanded task list without an artificially short nested list cap
+- grow the Expanded window within the current screen's visible frame as needed; only constrain content when required by the available screen height
+- automatically apply the task-count-based Expanded height on initial launch and whenever returning from Mini Mode, so restored window geometry cannot hide the complete normal task interface
+- use a sufficiently large default Expanded size to show the complete current-task controls and normal supporting content; automatically repair older saved Expanded frames that are too small
+- show normal navigation and provide access to History and existing application features
+- include a visible control to enter Mini Mode
+- show the standard macOS title bar and traffic-light window controls in normal Expanded Mode
+- support entering and leaving native macOS full-screen mode
+- use a real macOS full-screen Space rather than merely resizing the window to screen bounds
+- preserve native macOS full-screen chrome behavior so moving the pointer to the top edge reveals the standard window controls
+- fill the complete native full-screen window with the system application background; do not leave black borders around an intrinsically sized Expanded view
+- preserve timer state, task durations, shared store identity, and Pin state through every mode or full-screen transition
 
-Start     Pause     Reset
+Recommended SF Symbol for entering native full-screen is `arrow.up.left.and.arrow.down.right`, or another appropriate native macOS expand icon.
 
-            Finish
-```
-
-The user can switch between Compact and Expanded.
+Mode switching must not pause, resume, reset, finish, or otherwise mutate any task. It must not duplicate the panel, recreate timer/store objects, lose History state, or reset Pin. Avoid unnecessary animation and respect Reduce Motion.
 
 ---
 
@@ -495,6 +535,8 @@ The application should have a concept called:
 `Active Task`
 
 This is the primary currently selected task.
+
+The active/selected task is also the preferred task shown by Mini Mode. Task selection is independent from running status because multiple tasks may run simultaneously. The application should record the most recently interacted-with task so Mini Mode can fall back deterministically when the selected task is not running.
 
 Example:
 
@@ -618,6 +660,9 @@ Selection behavior:
 - Shift-click selects a range where appropriate
 - selection uses native macOS visual treatment
 - `Export Selected` is disabled when no History group is selected
+- `Select All` selects every currently displayed logical History group, and can toggle to `Deselect All`
+- `Delete Selected` permanently deletes all selected logical groups and their underlying completed sessions after the configured confirmation behavior
+- bulk History deletion must not delete or mutate unfinished tasks, including active timers that share a task group
 
 The user can export only the selected History groups and their underlying sessions.
 
@@ -1126,6 +1171,13 @@ Example:
 
 `Keep Timer on Top`
 
+Mini/Expanded and native full-screen controls must have clear accessibility labels and must not rely on icons alone. Examples:
+
+- `Enter Mini Timer`
+- `Open Full Timer`
+- `Enter Full Screen`
+- `Exit Full Screen`
+
 ---
 
 # 7. Recommended Technical Architecture
@@ -1164,7 +1216,7 @@ FloatingTaskTimer/
 ├── Views/
 │   ├── Floating/
 │   │   ├── FloatingTimerView.swift
-│   │   ├── CompactTimerView.swift
+│   │   ├── MiniTimerView.swift
 │   │   └── ExpandedTimerView.swift
 │   │
 │   ├── Tasks/
@@ -1266,7 +1318,9 @@ SwiftUI View inside an AppKit `NSPanel`.
 Desired panel characteristics:
 
 - floating capable
-- borderless or compact title bar
+- borderless in Mini Mode, with no standard title bar or traffic-light controls
+- borderless in normal Expanded Mode, with no unused title-bar area or traffic-light controls
+- native full-screen capability may be applied internally during the transition without leaving visible title-bar chrome in normal mode
 - movable
 - remembers position
 - joins all Spaces if desired
@@ -1274,6 +1328,9 @@ Desired panel characteristics:
 - follows the active desktop or full-screen Space only when Pin is enabled
 - restores normal managed Space behavior when Pin is disabled
 - remains a single retained panel across all Space transitions
+- supports explicit Mini and Expanded window modes
+- supports real AppKit native full-screen entry and exit from Expanded Mode
+- restores valid per-mode size and position without placing a window off-screen
 
 Investigate:
 
@@ -1289,6 +1346,27 @@ becomesKeyOnlyIfNeeded
 Do not assume all flags should be enabled.
 
 Test actual behavior on macOS.
+
+`WindowManager` must own window-mode behavior. A recommended state is:
+
+```swift
+enum TimerWindowMode {
+    case mini
+    case expanded
+}
+```
+
+`WindowManager` should coordinate:
+
+- the single retained panel and hosted SwiftUI content
+- Mini/Expanded mode state
+- window size and valid position restoration
+- first-use Mini placement near the current screen's top-right visible frame
+- native macOS full-screen entry and exit
+- Pin level and collection behavior preservation
+- avoidance of duplicate windows during mode, Space, or full-screen transitions
+
+SwiftUI views should express intent through operations such as `showMiniMode()`, `showExpandedMode()`, and `enterFullScreen()` rather than manipulating `NSWindow` throughout the view hierarchy.
 
 ---
 
@@ -1333,6 +1411,8 @@ Prefer UserDefaults / `@AppStorage` for small preferences.
 Examples:
 
 - pin state
+- last window display mode
+- Mini and Expanded window positions or frame-restoration keys
 - display format
 - confirmation settings
 
@@ -1402,6 +1482,9 @@ Required cases:
 - relaunch recovery with mixed running and paused tasks
 - overlapping active intervals
 - duration formatting
+- deterministic Mini Mode task selection with zero, one, and multiple running tasks
+- mode switching preserves task, timer, History, and Pin state
+- invalid saved Mini positions are repaired into an available screen's visible frame
 
 Use injectable clocks where possible.
 
@@ -1432,6 +1515,9 @@ Test:
 - selected-group export includes only the chosen groups and their underlying sessions
 - `Tasks` and `Sessions` worksheets contain consistent group and session identifiers
 - `.xlsx` output is a valid workbook readable by Excel and Numbers
+- last window display mode restores without recreating application state
+- valid Mini window position persists and restores
+- a Mini position from a disconnected or rearranged display is repaired safely
 
 ---
 
@@ -1453,6 +1539,10 @@ Core flows:
 12. Toggle Pin.
 13. Open menu bar.
 14. Switch active task.
+15. Switch from Expanded Mode to Mini Mode and verify the selected/recent running task and live monospaced duration are shown.
+16. With multiple tasks running, switch the task displayed in Mini Mode without pausing or mutating any timer.
+17. Return to Expanded Mode and verify all tasks, History state, and Pin state are unchanged.
+18. Enter and exit native macOS full-screen from Expanded Mode and verify timers and Pin state remain unchanged.
 
 ---
 
@@ -1470,6 +1560,13 @@ Test on:
 - app force quit
 - logout/relogin
 - screen scaling changes
+- first-use Mini placement at the current screen's top-right visible frame
+- Mini position restoration after manual movement
+- Mini position repair after disconnecting or rearranging displays
+- repeated Mini/Expanded switching without duplicate windows
+- native full-screen entry/exit from Expanded Mode
+- Pin ON and Pin OFF behavior in both display modes
+- Reduce Motion during mode transitions
 
 ---
 
@@ -1493,6 +1590,9 @@ Version 1.0 MVP should contain only:
 14. local persistence
 15. accurate restart recovery
 16. settings basics
+17. Mini and Expanded window display modes
+18. native macOS full-screen support from Expanded Mode
+19. persisted and repaired Mini window placement
 
 Optional for 1.1:
 
@@ -1500,7 +1600,6 @@ Optional for 1.1:
 - global shortcuts
 - launch at login
 - richer analytics
-- multi-running-task mode
 
 ---
 
@@ -1761,6 +1860,42 @@ Commit:
 
 ---
 
+# Phase 9.1 — Window Display Modes
+
+Implement:
+
+- Mini Mode
+- Expanded Mode
+- borderless, background-draggable Mini and Expanded presentation without title-bar or traffic-light chrome in normal window mode
+- native macOS full-screen support from Expanded Mode
+- visible and accessible expand/collapse controls
+- deterministic current running-task selection in Mini Mode
+- compact switching between simultaneously running tasks
+- first-use Mini placement near the current screen's top-right visible frame
+- Mini window position persistence and off-screen repair
+- Pin preservation across mode and full-screen transitions
+- exactly one retained window with shared `TaskStore`, timer, and History state
+- Reduce Motion-aware transitions without unnecessary animation
+
+Acceptance criteria:
+
+1. Switching Mini ↔ Expanded never mutates any task or duration.
+2. Multiple running tasks continue independently during and after every window transition.
+3. Mini Mode shows one deterministic task and never sums simultaneous timers.
+4. The Mini task switcher changes only which task is displayed.
+5. First-use and restored Mini placement remains fully inside an available screen's visible frame.
+6. Entering or leaving native macOS full-screen does not reset Pin or timer state.
+7. Pin behavior continues to satisfy the existing desktop and full-screen Space requirements in both modes.
+8. Mode switching never creates a duplicate window, `TaskStore`, or `TimerEngine`.
+9. Mini and Expanded Mode show no unused title-bar area, remain draggable, and native full-screen transitions restore the borderless normal-window presentation on exit.
+10. Expanded Mode exposes all unfinished task rows, while opening the application summons the retained window into the current macOS Space.
+
+Commit:
+
+`feat: add mini and expanded window modes`
+
+---
+
 # Phase 10 — Hardening
 
 Add:
@@ -2008,6 +2143,9 @@ Verify:
 - history persists
 - continued tasks merge into one logical History row while preserving their session log
 - dark mode works
+- Mini and Expanded modes preserve shared timer, History, and Pin state
+- Mini position restores on valid displays and repairs safely after display changes
+- Expanded Mode enters and exits a real native macOS full-screen Space
 - selected History export produces a valid `.xlsx` workbook with consistent `Tasks` and `Sessions` worksheets
 - sleep/wake behavior is correct
 - no debug logs expose task names
@@ -2058,7 +2196,7 @@ If analytics are added, measure only useful product events, such as:
 - timer started
 - timer completed
 - pin enabled
-- compact mode used
+- Mini Mode used
 - menu-bar mode used
 
 Do not send:
@@ -2182,6 +2320,12 @@ The product is ready for beta when all of the following are true:
 - History supports Continue Tracking without mutating or double-counting original completed sessions
 - History supports persisted group Rename, View Log, and confirmed whole-group Delete actions
 - menu bar shows current timer
+- user can switch visibly between Mini and Expanded Mode
+- Mini Mode deterministically shows one relevant task and provides compact switching when multiple tasks run
+- Mini Mode uses monospaced live duration and retains Pause/Resume and Pin controls
+- the first Mini placement and restored Mini position stay within the current available screen's visible frame
+- Expanded Mode supports real native macOS full-screen without changing timer or Pin state
+- mode switching reuses one window and the same timer/store/History state
 - no known data-loss bug exists
 - basic unit tests pass
 - application builds in Release configuration

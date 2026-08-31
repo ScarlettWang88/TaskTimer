@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import SwiftData
 import Testing
 @testable import FloatingTaskTimer
 
@@ -83,5 +84,107 @@ struct WindowManagerTests {
         #expect(behavior == [.moveToActiveSpace])
         #expect(!behavior.contains(.canJoinAllSpaces))
         #expect(!behavior.contains(.fullScreenAuxiliary))
+    }
+
+    @Test("Window mode persists and mode changes preserve Pin")
+    func modePersistsWithoutChangingPin() {
+        let suiteName = "WindowManagerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = WindowManager(userDefaults: defaults)
+        manager.setPinned(true)
+        manager.showMiniMode()
+
+        #expect(manager.mode == .mini)
+        #expect(manager.isPinned)
+
+        let restored = WindowManager(userDefaults: defaults)
+        #expect(restored.mode == .mini)
+        #expect(restored.isPinned)
+
+        restored.showExpandedMode()
+        #expect(restored.mode == .expanded)
+        #expect(restored.isPinned)
+    }
+
+    @Test("Mini defaults to the visible frame top-right")
+    func miniTopRightPlacement() {
+        let visible = NSRect(x: 100, y: 50, width: 1_200, height: 800)
+        let frame = WindowManager.topRightFrame(
+            size: WindowManager.miniContentSize,
+            visibleFrame: visible
+        )
+
+        #expect(frame.maxX == visible.maxX - WindowManager.windowEdgeMargin)
+        #expect(frame.maxY == visible.maxY - WindowManager.windowEdgeMargin)
+        #expect(visible.contains(frame))
+    }
+
+    @Test("A valid moved Mini frame restores unchanged")
+    func movedMiniFrameRestores() {
+        let visible = NSRect(x: 0, y: 0, width: 1_440, height: 900)
+        let moved = NSRect(x: 320, y: 280, width: 300, height: 116)
+
+        let repaired = WindowManager.repairedFrame(
+            moved,
+            targetSize: WindowManager.miniContentSize,
+            visibleFrames: [visible],
+            fallbackVisibleFrame: visible
+        )
+
+        #expect(repaired == moved)
+    }
+
+    @Test("A frame from a disconnected monitor repairs to the fallback screen")
+    func disconnectedMonitorFrameRepairs() {
+        let fallback = NSRect(x: 0, y: 0, width: 1_440, height: 900)
+        let disconnected = NSRect(x: 3_000, y: 400, width: 300, height: 116)
+
+        let repaired = WindowManager.repairedFrame(
+            disconnected,
+            targetSize: WindowManager.miniContentSize,
+            visibleFrames: [fallback],
+            fallbackVisibleFrame: fallback
+        )
+
+        #expect(fallback.contains(repaired))
+        #expect(repaired.maxX == fallback.maxX - WindowManager.windowEdgeMargin)
+        #expect(repaired.maxY == fallback.maxY - WindowManager.windowEdgeMargin)
+    }
+
+    @Test("Native full-screen uses primary behavior without changing Pin semantics")
+    func nativeFullScreenBehavior() {
+        let behavior = WindowManager.nativeFullScreenCollectionBehavior
+        #expect(behavior == [.fullScreenPrimary])
+        #expect(!behavior.contains(.canJoinAllSpaces))
+        #expect(WindowManager.pinnedCollectionBehavior.contains(.canJoinAllApplications))
+    }
+
+    @Test("Repeated display requests retain one timer window")
+    func noDuplicateTimerWindows() throws {
+        let suiteName = "WindowManagerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let container = try ModelContainer(
+            for: PersistedTaskSession.self, PersistedTaskStoreState.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let store = try TaskStore(
+            persistence: TaskSessionStore(modelContext: ModelContext(container))
+        )
+        let manager = WindowManager(
+            taskStore: store,
+            navigation: AppNavigation(),
+            settings: SettingsStore(defaults: defaults),
+            userDefaults: defaults
+        )
+
+        manager.showWindow()
+        manager.showMiniMode()
+        manager.showExpandedMode()
+        manager.showWindow()
+
+        #expect(manager.managedTimerWindowCount == 1)
     }
 }

@@ -221,6 +221,46 @@ struct HistoryTests {
         #expect(restored.history.map(\.id) == [second.id])
     }
 
+    @Test("Deleting selected History groups removes all underlying sessions and preserves active tasks")
+    func deleteSelectedHistoryGroups() throws {
+        let container = try makeContainer()
+        let firstGroupID = UUID()
+        let first = TaskSession(
+            id: UUID(), taskGroupID: firstGroupID, name: "Delete 1", status: .completed,
+            createdAt: referenceDate, firstStartedAt: referenceDate,
+            completedAt: referenceDate.addingTimeInterval(60), accumulatedActiveDuration: 60
+        )
+        let continuation = TaskSession(
+            id: UUID(), taskGroupID: firstGroupID, name: "Delete 1", status: .completed,
+            createdAt: referenceDate, firstStartedAt: referenceDate,
+            completedAt: referenceDate.addingTimeInterval(90), accumulatedActiveDuration: 30
+        )
+        let second = completedSession(
+            id: UUID(), name: "Delete 2", completedAt: referenceDate.addingTimeInterval(120)
+        )
+        let kept = completedSession(
+            id: UUID(), name: "Keep", completedAt: referenceDate.addingTimeInterval(180)
+        )
+        let active = TaskSession(name: "Running", status: .running, createdAt: referenceDate,
+                                 firstStartedAt: referenceDate, lastResumedAt: referenceDate)
+        try TaskSessionStore(modelContext: ModelContext(container)).save(
+            [first, continuation, second, kept, active], activeTaskID: active.id
+        )
+        let store = try TaskStore(
+            persistence: TaskSessionStore(modelContext: ModelContext(container))
+        )
+
+        try store.deleteHistoryGroups(ids: [firstGroupID, second.taskGroupID])
+
+        #expect(store.history.map(\.id) == [kept.id])
+        #expect(store.tasks.map(\.id).contains(active.id))
+        let restored = try TaskStore(
+            persistence: TaskSessionStore(modelContext: ModelContext(container))
+        )
+        #expect(restored.history.map(\.id) == [kept.id])
+        #expect(restored.tasks.map(\.id).contains(active.id))
+    }
+
     @Test("Continuing history creates a new independent task and preserves the original")
     func continueHistory() throws {
         let container = try makeContainer()

@@ -33,10 +33,26 @@ final class TaskStore {
     }
 
     var menuBarTask: TaskSession? {
+        miniTask
+    }
+
+    var runningTasks: [TaskSession] {
+        tasks.filter { $0.status == .running }
+    }
+
+    var miniTask: TaskSession? {
         if let activeTask, activeTask.status == .running {
             return activeTask
         }
-        return tasks.first(where: { $0.status == .running }) ?? activeTask
+
+        return runningTasks.max(by: { lhs, rhs in
+            let lhsDate = lhs.lastResumedAt ?? lhs.firstStartedAt ?? lhs.createdAt
+            let rhsDate = rhs.lastResumedAt ?? rhs.firstStartedAt ?? rhs.createdAt
+            if lhsDate == rhsDate {
+                return taskOrder(for: lhs.id) > taskOrder(for: rhs.id)
+            }
+            return lhsDate < rhsDate
+        }) ?? activeTask
     }
 
     var lastCompletedTask: TaskSession? {
@@ -74,6 +90,15 @@ final class TaskStore {
         guard tasks.contains(where: { $0.id == id }) else { return }
         activeTaskID = id
         try persistence.saveActiveTaskID(id)
+    }
+
+    func selectAdjacentRunningTask(from taskID: UUID, offset: Int) throws {
+        let running = runningTasks
+        guard running.count > 1 else { return }
+
+        let currentIndex = running.firstIndex(where: { $0.id == taskID }) ?? 0
+        let nextIndex = (currentIndex + offset % running.count + running.count) % running.count
+        try selectTask(id: running[nextIndex].id)
     }
 
     @discardableResult
@@ -173,8 +198,13 @@ final class TaskStore {
     }
 
     func deleteHistoryGroup(id taskGroupID: UUID) throws {
-        history.removeAll { $0.taskGroupID == taskGroupID }
-        try persistence.delete(taskGroupID: taskGroupID)
+        try deleteHistoryGroups(ids: [taskGroupID])
+    }
+
+    func deleteHistoryGroups(ids taskGroupIDs: Set<UUID>) throws {
+        guard !taskGroupIDs.isEmpty else { return }
+        history.removeAll { taskGroupIDs.contains($0.taskGroupID) }
+        try persistence.delete(taskGroupIDs: taskGroupIDs)
     }
 
     @discardableResult
@@ -273,6 +303,10 @@ final class TaskStore {
 
     private func preferredActiveTaskID() -> UUID? {
         tasks.first(where: { $0.status == .running })?.id ?? tasks.first?.id
+    }
+
+    private func taskOrder(for id: UUID) -> Int {
+        tasks.firstIndex(where: { $0.id == id }) ?? .max
     }
 
     private func sortHistory() {

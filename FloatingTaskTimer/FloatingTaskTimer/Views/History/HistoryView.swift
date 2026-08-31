@@ -12,7 +12,7 @@ struct HistoryView: View {
     @State private var detailGroup: HistoryGroup?
     @State private var renameTargetID: UUID?
     @State private var renameText = ""
-    @State private var deleteTargetID: UUID?
+    @State private var deleteTargetIDs = Set<UUID>()
     @State private var errorMessage: String?
     @State private var exportSuccessMessage: String?
     @State private var isExporting = false
@@ -24,6 +24,10 @@ struct HistoryView: View {
             HStack {
                 Text("History").font(.title2.weight(.semibold))
                 Spacer()
+                Button(allHistorySelected ? "Deselect All" : "Select All", action: toggleSelectAll)
+                    .disabled(taskStore.historyGroups.isEmpty || isExporting || isPresentingSavePanel)
+                Button("Delete Selected", role: .destructive, action: requestDeleteSelected)
+                    .disabled(selectedIDs.isEmpty || isExporting || isPresentingSavePanel)
                 Button(exportButtonTitle, action: exportSelected)
                     .disabled(selectedIDs.isEmpty || isExporting || isPresentingSavePanel)
             }
@@ -70,9 +74,9 @@ struct HistoryView: View {
             }.frame(minWidth: 720, minHeight: 520)
         }
         .sheet(isPresented: renameIsPresented) { renameSheet }
-        .alert("Delete all history for this task?", isPresented: deleteIsPresented) {
-            Button("Cancel", role: .cancel) { deleteTargetID = nil }
-            Button("Delete All", role: .destructive, action: confirmDelete)
+        .alert(deleteAlertTitle, isPresented: deleteIsPresented) {
+            Button("Cancel", role: .cancel) { deleteTargetIDs.removeAll() }
+            Button("Delete", role: .destructive, action: confirmDelete)
         } message: { Text(deleteMessage) }
         .alert("History Error", isPresented: errorIsPresented) {
             Button("OK", role: .cancel) {}
@@ -100,7 +104,9 @@ struct HistoryView: View {
     }
 
     private var renameIsPresented: Binding<Bool> { presenceBinding($renameTargetID) }
-    private var deleteIsPresented: Binding<Bool> { presenceBinding($deleteTargetID) }
+    private var deleteIsPresented: Binding<Bool> {
+        Binding(get: { !deleteTargetIDs.isEmpty }, set: { if !$0 { deleteTargetIDs.removeAll() } })
+    }
     private var errorIsPresented: Binding<Bool> { presenceBinding($errorMessage) }
     private var exportSuccessIsPresented: Binding<Bool> { presenceBinding($exportSuccessMessage) }
 
@@ -131,26 +137,55 @@ struct HistoryView: View {
     }
 
     private func confirmDelete() {
-        guard let id = deleteTargetID else { return }
-        perform { try taskStore.deleteHistoryGroup(id: id) }
-        selectedIDs.remove(id)
-        deleteTargetID = nil
+        let ids = deleteTargetIDs
+        guard !ids.isEmpty else { return }
+        perform { try taskStore.deleteHistoryGroups(ids: ids) }
+        selectedIDs.subtract(ids)
+        deleteTargetIDs.removeAll()
     }
 
     private func requestDelete(_ id: UUID) {
         if settings.confirmBeforeHistoryDelete {
-            deleteTargetID = id
+            deleteTargetIDs = [id]
         } else {
             perform { try taskStore.deleteHistoryGroup(id: id) }
             selectedIDs.remove(id)
         }
     }
 
+    private func requestDeleteSelected() {
+        let availableIDs = Set(taskStore.historyGroups.map(\.id))
+        let ids = selectedIDs.intersection(availableIDs)
+        guard !ids.isEmpty else { return }
+        if settings.confirmBeforeHistoryDelete {
+            deleteTargetIDs = ids
+        } else {
+            perform { try taskStore.deleteHistoryGroups(ids: ids) }
+            selectedIDs.subtract(ids)
+        }
+    }
+
+    private var allHistorySelected: Bool {
+        let availableIDs = Set(taskStore.historyGroups.map(\.id))
+        return !availableIDs.isEmpty && selectedIDs.isSuperset(of: availableIDs)
+    }
+
+    private func toggleSelectAll() {
+        let availableIDs = Set(taskStore.historyGroups.map(\.id))
+        selectedIDs = allHistorySelected ? [] : availableIDs
+    }
+
+    private var deleteAlertTitle: String {
+        deleteTargetIDs.count == 1 ? "Delete selected History task?" : "Delete selected History tasks?"
+    }
+
     private var deleteMessage: String {
-        guard let id = deleteTargetID, let group = taskStore.historyGroups.first(where: { $0.id == id }) else {
+        let groups = taskStore.historyGroups.filter { deleteTargetIDs.contains($0.id) }
+        guard !groups.isEmpty else {
             return "This action cannot be undone."
         }
-        return "This will permanently delete \(group.sessionCount) recorded session(s) for \"\(group.name)\"."
+        let sessionCount = groups.reduce(0) { $0 + $1.sessionCount }
+        return "This will permanently delete \(groups.count) History task(s) and \(sessionCount) recorded session(s). This action cannot be undone."
     }
 
     private func exportSelected() {

@@ -13,6 +13,9 @@ final class SettingsStore {
         static let confirmBeforeHistoryDelete = "settings.confirmBeforeHistoryDelete"
         static let alwaysOnTopDefault = "settings.alwaysOnTopDefault"
         static let currentPin = "isTimerPinned"
+        static let timerWindowMode = "window.timerMode"
+        static let miniWindowFrame = "window.miniFrame"
+        static let expandedWindowFrame = "window.expandedFrame"
     }
 
     @ObservationIgnored private let defaults: UserDefaults

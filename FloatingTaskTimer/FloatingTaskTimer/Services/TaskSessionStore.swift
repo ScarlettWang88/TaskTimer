@@ -84,8 +84,15 @@ final class TaskSessionStore {
     }
 
     func delete(taskGroupID: UUID) throws {
-        for record in try fetchSessionRecords()
-        where record.taskGroupID == taskGroupID && record.statusRawValue == TaskStatus.completed.rawValue {
+        try delete(taskGroupIDs: [taskGroupID])
+    }
+
+    func delete(taskGroupIDs: Set<UUID>) throws {
+        guard !taskGroupIDs.isEmpty else { return }
+        for record in try fetchSessionRecords() {
+            guard let taskGroupID = record.taskGroupID,
+                  taskGroupIDs.contains(taskGroupID),
+                  record.statusRawValue == TaskStatus.completed.rawValue else { continue }
             modelContext.delete(record)
         }
         try modelContext.save()

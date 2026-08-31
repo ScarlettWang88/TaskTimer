@@ -175,6 +175,39 @@ struct TaskStoreTests {
         #expect(store.duration(for: second) == 20)
     }
 
+    @Test("Mini prefers the active running task and falls back deterministically")
+    func miniTaskSelection() throws {
+        let (store, clock, firstID) = try makeNamedStore()
+        #expect(try store.startOrResume(taskID: firstID))
+        clock.advance(by: 5)
+        let secondID = try store.createTask(name: "Second", startImmediately: true)
+        let pausedID = try store.createTask(name: "Paused", startImmediately: true)
+        #expect(try store.pause(taskID: pausedID))
+
+        #expect(store.activeTaskID == pausedID)
+        #expect(store.miniTask?.id == secondID)
+
+        try store.selectTask(id: firstID)
+        #expect(store.miniTask?.id == firstID)
+    }
+
+    @Test("Mini switches among three running tasks without pausing any")
+    func miniSwitchPreservesParallelTimers() throws {
+        let (store, clock, firstID) = try makeNamedStore()
+        let secondID = try store.createTask(name: "Second", startImmediately: true)
+        let thirdID = try store.createTask(name: "Third", startImmediately: true)
+        #expect(try store.startOrResume(taskID: firstID))
+        clock.advance(by: 10)
+
+        try store.selectAdjacentRunningTask(from: thirdID, offset: 1)
+
+        #expect(store.activeTaskID == firstID)
+        #expect(Set(store.runningTasks.map(\.id)) == Set([firstID, secondID, thirdID]))
+        for task in store.runningTasks {
+            #expect(store.duration(for: task) == 10)
+        }
+    }
+
     @Test("Completed active intervals are retained for future overlap analytics")
     func retainsActiveIntervals() throws {
         let (store, clock, firstID) = try makeNamedStore()

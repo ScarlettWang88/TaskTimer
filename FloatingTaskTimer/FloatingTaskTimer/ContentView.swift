@@ -25,6 +25,21 @@ struct ContentView: View {
     @State private var resetTargetID: UUID?
 
     var body: some View {
+        Group {
+            if windowManager.mode == .mini {
+                MiniTimerView(
+                    taskStore: taskStore,
+                    windowManager: windowManager,
+                    settings: settings
+                )
+            } else {
+                expandedContent
+            }
+        }
+        .preferredColorScheme(settings.appearance.colorScheme)
+    }
+
+    private var expandedContent: some View {
         VStack(spacing: 20) {
             titleBar
 
@@ -49,7 +64,15 @@ struct ContentView: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 460, idealWidth: 520, minHeight: 390)
+        .frame(
+            minWidth: 560,
+            idealWidth: 620,
+            maxWidth: .infinity,
+            minHeight: 520,
+            maxHeight: .infinity,
+            alignment: .top
+        )
+        .background(.background)
         .sheet(isPresented: $isCreatingTask) {
             newTaskSheet
         }
@@ -64,7 +87,14 @@ struct ContentView: View {
         } message: {
             Text("The recorded duration for this unfinished task will return to zero.")
         }
-        .preferredColorScheme(settings.appearance.colorScheme)
+        .onAppear {
+            DispatchQueue.main.async {
+                windowManager.fitExpandedWindow(taskCount: taskStore.tasks.count)
+            }
+        }
+        .onChange(of: taskStore.tasks.count) { _, taskCount in
+            windowManager.fitExpandedWindow(taskCount: taskCount)
+        }
     }
 
     private var titleBar: some View {
@@ -90,6 +120,28 @@ struct ContentView: View {
                 .help("New Task")
                 .accessibilityLabel("New Task")
             }
+
+            Button {
+                windowManager.showMiniMode()
+            } label: {
+                Image(systemName: "rectangle.compress.vertical")
+            }
+            .buttonStyle(.plain)
+            .help("Enter Mini Timer")
+            .accessibilityLabel("Enter Mini Timer")
+
+            Button {
+                windowManager.toggleFullScreen()
+            } label: {
+                Image(systemName: windowManager.isFullScreen
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.plain)
+            .help(windowManager.isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
+            .accessibilityLabel(
+                windowManager.isFullScreen ? "Exit Full Screen" : "Enter Full Screen"
+            )
 
             Button {
                 windowManager.setPinned(!windowManager.isPinned)
@@ -177,14 +229,11 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
 
             TimelineView(.periodic(from: .now, by: 1)) { _ in
-                ScrollView {
-                    VStack(spacing: 4) {
-                        ForEach(taskStore.otherTasks) { task in
-                            taskRow(taskStore: taskStore, task: task)
-                        }
+                VStack(spacing: 4) {
+                    ForEach(taskStore.otherTasks) { task in
+                        taskRow(taskStore: taskStore, task: task)
                     }
                 }
-                .frame(maxHeight: 180)
             }
         }
     }

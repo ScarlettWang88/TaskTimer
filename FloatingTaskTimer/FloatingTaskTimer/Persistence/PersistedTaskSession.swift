@@ -14,6 +14,7 @@ final class PersistedTaskSession {
     var accumulatedActiveDuration: TimeInterval
     var accumulatedPausedDuration: TimeInterval
     var pauseStartedAt: Date?
+    var activeIntervalsData: Data = Data()
     var updatedAt: Date
 
     init(session: TaskSession, updatedAt: Date = Date()) {
@@ -28,6 +29,7 @@ final class PersistedTaskSession {
         accumulatedActiveDuration = session.accumulatedActiveDuration
         accumulatedPausedDuration = session.accumulatedPausedDuration
         pauseStartedAt = session.pauseStartedAt
+        activeIntervalsData = (try? JSONEncoder().encode(session.activeIntervals)) ?? Data()
         self.updatedAt = updatedAt
     }
 
@@ -43,6 +45,11 @@ final class PersistedTaskSession {
             return nil
         }
 
+        let activeIntervals = (try? JSONDecoder().decode(
+            [TaskActiveInterval].self,
+            from: activeIntervalsData
+        )) ?? []
+
         return TaskSession(
             id: sessionID,
             name: name,
@@ -54,7 +61,8 @@ final class PersistedTaskSession {
             completedAt: completedAt,
             accumulatedActiveDuration: accumulatedActiveDuration,
             accumulatedPausedDuration: accumulatedPausedDuration,
-            pauseStartedAt: pauseStartedAt
+            pauseStartedAt: pauseStartedAt,
+            activeIntervals: activeIntervals
         )
     }
 
@@ -70,6 +78,7 @@ final class PersistedTaskSession {
         accumulatedActiveDuration = session.accumulatedActiveDuration
         accumulatedPausedDuration = session.accumulatedPausedDuration
         pauseStartedAt = session.pauseStartedAt
+        activeIntervalsData = (try? JSONEncoder().encode(session.activeIntervals)) ?? Data()
         updatedAt = date
     }
 

@@ -36,6 +36,9 @@ struct TimerEngine {
 
         let now = timeProvider.now
         session.accumulatedActiveDuration += elapsed(from: lastResumedAt, to: now)
+        session.activeIntervals.append(
+            TaskActiveInterval(startedAt: lastResumedAt, endedAt: max(now, lastResumedAt))
+        )
         session.status = .paused
         session.lastResumedAt = nil
         session.pauseStartedAt = now
@@ -53,6 +56,7 @@ struct TimerEngine {
         session.status = .running
         session.lastResumedAt = now
         session.pauseStartedAt = nil
+        session.activeIntervals = []
         return true
     }
 
@@ -78,6 +82,9 @@ struct TimerEngine {
         case .running:
             guard let lastResumedAt = session.lastResumedAt else { return false }
             session.accumulatedActiveDuration += elapsed(from: lastResumedAt, to: now)
+            session.activeIntervals.append(
+                TaskActiveInterval(startedAt: lastResumedAt, endedAt: max(now, lastResumedAt))
+            )
         case .paused:
             guard let pauseStartedAt = session.pauseStartedAt else { return false }
             session.accumulatedPausedDuration += elapsed(from: pauseStartedAt, to: now)

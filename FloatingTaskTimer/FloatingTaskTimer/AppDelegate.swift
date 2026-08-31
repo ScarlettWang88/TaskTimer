@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeModelContainer() -> ModelContainer {
         let schema = Schema([
             PersistedTaskSession.self,
+            PersistedTaskStoreState.self,
         ])
         let modelConfiguration = ModelConfiguration(
             "TaskSessions",

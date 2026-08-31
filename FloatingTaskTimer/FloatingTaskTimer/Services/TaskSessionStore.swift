@@ -1,6 +1,11 @@
 import Foundation
 import SwiftData
 
+struct PersistedTaskCollection {
+    var sessions: [TaskSession]
+    var activeTaskID: UUID?
+}
+
 @MainActor
 final class TaskSessionStore {
     private let modelContext: ModelContext
@@ -9,36 +14,40 @@ final class TaskSessionStore {
         self.modelContext = modelContext
     }
 
-    func load() throws -> TaskSession? {
-        let records = try fetchRecords()
+    func load() throws -> PersistedTaskCollection {
+        let records = try fetchSessionRecords()
+        var sessions: [TaskSession] = []
+        var seenIDs = Set<UUID>()
+        var changed = false
 
-        guard let currentRecord = records.first else {
-            return nil
+        for record in records {
+            guard let session = record.taskSession, seenIDs.insert(session.id).inserted else {
+                modelContext.delete(record)
+                changed = true
+                continue
+            }
+            sessions.append(session)
         }
 
-        for duplicate in records.dropFirst() {
+        let stateRecords = try fetchStateRecords()
+        let state = stateRecords.first
+        for duplicate in stateRecords.dropFirst() {
             modelContext.delete(duplicate)
+            changed = true
         }
 
-        guard let session = currentRecord.taskSession else {
-            modelContext.delete(currentRecord)
-            try modelContext.save()
-            return nil
-        }
-
-        if records.count > 1 {
+        if changed {
             try modelContext.save()
         }
 
-        return session
+        return PersistedTaskCollection(sessions: sessions, activeTaskID: state?.activeTaskID)
     }
 
     func save(_ session: TaskSession) throws {
-        let records = try fetchRecords()
+        let records = try fetchSessionRecords().filter { $0.sessionID == session.id }
 
-        if let currentRecord = records.first {
-            currentRecord.update(from: session)
-
+        if let record = records.first {
+            record.update(from: session)
             for duplicate in records.dropFirst() {
                 modelContext.delete(duplicate)
             }
@@ -49,10 +58,59 @@ final class TaskSessionStore {
         try modelContext.save()
     }
 
-    private func fetchRecords() throws -> [PersistedTaskSession] {
+    func save(_ sessions: [TaskSession], activeTaskID: UUID?) throws {
+        let recordsByID = Dictionary(grouping: try fetchSessionRecords(), by: \.sessionID)
+
+        for session in sessions {
+            if let records = recordsByID[session.id], let record = records.first {
+                record.update(from: session)
+                for duplicate in records.dropFirst() {
+                    modelContext.delete(duplicate)
+                }
+            } else {
+                modelContext.insert(PersistedTaskSession(session: session))
+            }
+        }
+
+        try saveActiveTaskID(activeTaskID, savingContext: false)
+        try modelContext.save()
+    }
+
+    func delete(id: UUID) throws {
+        for record in try fetchSessionRecords() where record.sessionID == id {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
+
+    func saveActiveTaskID(_ activeTaskID: UUID?) throws {
+        try saveActiveTaskID(activeTaskID, savingContext: true)
+    }
+
+    private func saveActiveTaskID(_ activeTaskID: UUID?, savingContext: Bool) throws {
+        let states = try fetchStateRecords()
+        if let state = states.first {
+            state.activeTaskID = activeTaskID
+            for duplicate in states.dropFirst() {
+                modelContext.delete(duplicate)
+            }
+        } else {
+            modelContext.insert(PersistedTaskStoreState(activeTaskID: activeTaskID))
+        }
+
+        if savingContext {
+            try modelContext.save()
+        }
+    }
+
+    private func fetchSessionRecords() throws -> [PersistedTaskSession] {
         let descriptor = FetchDescriptor<PersistedTaskSession>(
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
         return try modelContext.fetch(descriptor)
+    }
+
+    private func fetchStateRecords() throws -> [PersistedTaskStoreState] {
+        try modelContext.fetch(FetchDescriptor<PersistedTaskStoreState>())
     }
 }

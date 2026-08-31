@@ -14,6 +14,7 @@ struct TaskSession: Identifiable, Codable, Equatable {
     var accumulatedActiveDuration: TimeInterval
     var accumulatedPausedDuration: TimeInterval
     var pauseStartedAt: Date?
+    var activeIntervals: [TaskActiveInterval]
 
     init(
         id: UUID = UUID(),
@@ -26,7 +27,8 @@ struct TaskSession: Identifiable, Codable, Equatable {
         completedAt: Date? = nil,
         accumulatedActiveDuration: TimeInterval = 0,
         accumulatedPausedDuration: TimeInterval = 0,
-        pauseStartedAt: Date? = nil
+        pauseStartedAt: Date? = nil,
+        activeIntervals: [TaskActiveInterval] = []
     ) {
         self.id = id
         self.name = name
@@ -39,5 +41,21 @@ struct TaskSession: Identifiable, Codable, Equatable {
         self.accumulatedActiveDuration = accumulatedActiveDuration
         self.accumulatedPausedDuration = accumulatedPausedDuration
         self.pauseStartedAt = pauseStartedAt
+        self.activeIntervals = activeIntervals
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.name == rhs.name
+            && lhs.category == rhs.category
+            && lhs.status == rhs.status
+            && lhs.createdAt == rhs.createdAt
+            && lhs.firstStartedAt == rhs.firstStartedAt
+            && lhs.lastResumedAt == rhs.lastResumedAt
+            && lhs.completedAt == rhs.completedAt
+            && lhs.accumulatedActiveDuration == rhs.accumulatedActiveDuration
+            && lhs.accumulatedPausedDuration == rhs.accumulatedPausedDuration
+            && lhs.pauseStartedAt == rhs.pauseStartedAt
+            && lhs.activeIntervals == rhs.activeIntervals
     }
 }

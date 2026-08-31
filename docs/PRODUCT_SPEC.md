@@ -148,7 +148,7 @@ When I click Finish, the application displays:
 
 I can Save or Discard.
 
-## 3.6 Switch between tasks
+## 3.6 Work with multiple tasks
 
 I can keep several unfinished tasks.
 
@@ -158,12 +158,12 @@ Example:
 - Reply to email — 18m
 - Data analysis — 1h 12m
 
-By default, only one task runs at a time.
+Multiple tasks may run simultaneously by default.
 
-If I switch to another task:
+If I start or resume another task:
 
-- current running task pauses
-- selected task resumes
+- existing running tasks continue running
+- the selected task starts or resumes independently
 
 ## 3.7 View history
 
@@ -173,7 +173,7 @@ I can inspect how much time was spent on each task.
 
 ## 3.8 Restore after restart
 
-If the app is quit or crashes, current task state must restore accurately.
+If the app is quit or crashes, every task state must restore accurately. All tasks that were running continue independently from their stored timestamps, while paused tasks remain frozen.
 
 ---
 
@@ -194,6 +194,9 @@ Requirements:
 - does not unnecessarily steal focus
 - can remain above other application windows
 - can return to normal window level
+- follows the user across macOS desktop Spaces while Pin is enabled
+- remains available in supported full-screen application Spaces while Pin is enabled
+- uses one retained window rather than creating a window for each Space
 
 Suggested implementation:
 
@@ -219,7 +222,14 @@ Set:
 
 `window.level = .floating`
 
-The timer stays above normal application windows.
+The timer stays above normal application windows and follows the currently active macOS Space.
+
+Required Space behavior:
+
+- switching between desktop Spaces keeps the timer visible
+- entering or switching to a native full-screen Space for VS Code, Safari, or another normal macOS application keeps the timer visible above that application
+- Space transitions must reuse the same panel and must not create duplicate windows
+- following a Space must not activate the timer app or steal keyboard focus unnecessarily
 
 Tooltip:
 
@@ -231,7 +241,7 @@ Set:
 
 `window.level = .normal`
 
-The timer behaves like a normal window.
+The timer behaves like a normal window and no longer follows the user into other desktop or full-screen Spaces.
 
 Tooltip:
 
@@ -247,6 +257,12 @@ Turning Pin on/off must not:
 - reset timers
 - delete tasks
 - affect history
+
+Switching Spaces while pinned must not:
+
+- pause, resume, reset, finish, or otherwise mutate any task
+- change any task duration or persistence state
+- create another timer engine or another floating panel
 
 ---
 
@@ -350,52 +366,45 @@ enum TaskStatus: String, Codable {
 
 ---
 
-# 4.6 Default Single-Running-Task Mode
+# 4.6 Simultaneous Running Tasks
 
 Default behavior:
 
-> Multiple tasks may exist, but only one may be running at a time.
+> Multiple unfinished tasks may run simultaneously by default.
 
 Example:
 
 ```text
 Write report       00:42:18   Running
-Reply emails       00:18:32   Paused
-Data analysis      01:12:05   Paused
+File export        00:18:32   Running
+Data analysis      01:12:05   Running
+Reply emails       00:08:10   Paused
 ```
 
 If the user resumes `Reply emails`:
 
-1. `Write report` pauses.
-2. `Reply emails` resumes.
+1. `Reply emails` resumes from its own accumulated duration.
+2. Every other running task continues without interruption.
 
-This avoids double-counting human focus time.
+Each task owns independent timing state and derives its duration from its own timestamps.
 
 ---
 
-# 4.7 Optional Multi-Timer Mode
+# 4.7 Overlapping Time Semantics
 
-Settings option:
+Simultaneous timers are standard product behavior, not an optional mode or future setting.
 
-`Allow Multiple Timers to Run Simultaneously`
+Future analytics must distinguish:
 
-Default:
+- **Recorded Task Time:** the sum of each task's active duration
+- **Unique Active Time:** the wall-clock union of all active intervals, counting overlaps only once
 
-`Off`
-
-If enabled, multiple tasks may run simultaneously.
-
-Example use cases:
+Example simultaneous use cases:
 
 - background file export
 - rendering
 - data processing
 - human work happening alongside machine processing
-
-When enabled, analytics should distinguish:
-
-- Recorded Task Time
-- Unique Active Time
 
 Do not simply sum overlapping sessions and call that focus time.
 
@@ -521,10 +530,10 @@ Recommended default action:
 
 `Create & Start`
 
-If another task is running and single-task mode is enabled:
+If other tasks are already running:
 
-- pause existing task
-- start new task
+- keep existing tasks running
+- start the new task independently
 
 ---
 
@@ -702,7 +711,6 @@ Shortcuts should be configurable.
 - Show Seconds
 - Confirm Before Reset
 - Confirm Before Discard
-- Allow Multiple Timers Simultaneously
 
 ## Appearance
 
@@ -760,7 +768,7 @@ For running tasks, save:
 
 On relaunch:
 
-If a task was running:
+For every task that was running:
 
 ```text
 current duration =
@@ -770,6 +778,8 @@ now - stored lastResumedAt
 ```
 
 Do not rely on restoring an in-memory Timer.
+
+All running tasks must restore as running and calculate elapsed time independently. Paused tasks must restore as paused without accruing active duration.
 
 ---
 
@@ -953,10 +963,11 @@ Example responsibilities:
 - reset
 - finish
 - calculate duration
-- switch active task
-- guarantee only one running task when configured
+- operate independently on any `TaskSession` value
 
 The view layer should not own timing logic.
+
+The `TimerEngine` must not contain one global timer shared by all tasks. Collection-level coordination belongs in `TaskStore`, and operations on one session must not mutate another session.
 
 ---
 
@@ -1009,6 +1020,9 @@ Desired panel characteristics:
 - remembers position
 - joins all Spaces if desired
 - behaves correctly when app is not active
+- follows the active desktop or full-screen Space only when Pin is enabled
+- restores normal managed Space behavior when Pin is disabled
+- remains a single retained panel across all Space transitions
 
 Investigate:
 
@@ -1068,7 +1082,6 @@ Examples:
 - pin state
 - display format
 - confirmation settings
-- multi-timer preference
 
 ---
 
@@ -1129,9 +1142,11 @@ Required cases:
 - app restart while running
 - app restart while paused
 - timer across simulated sleep period
-- switch active task
-- single-running-task enforcement
-- overlapping multi-timer mode
+- two and three tasks running simultaneously
+- pausing, resetting, or finishing one task while others continue
+- relaunch recovery with multiple running tasks
+- relaunch recovery with mixed running and paused tasks
+- overlapping active intervals
 - duration formatting
 
 Use injectable clocks where possible.
@@ -1198,8 +1213,8 @@ Version 1.0 MVP should contain only:
 6. Floating window
 7. Pin toggle
 8. Multiple task storage
-9. One active running task by default
-10. Task switching
+9. Multiple simultaneously running tasks
+10. Independent task controls and active task selection
 11. History
 12. Menu-bar timer
 13. local persistence
@@ -1368,6 +1383,10 @@ Test:
 - window drag
 - app switching
 - multi-monitor behavior
+- switching repeatedly between desktop Spaces
+- switching between desktop and native full-screen Spaces
+- confirming no duplicate timer windows are created
+- confirming Space changes do not affect any task timer state
 
 Pin ON:
 1. Open Visual Studio Code.
@@ -1380,6 +1399,14 @@ Pin ON:
 This behavior must not be implemented as a VS Code-specific hack.
 It should come from correct NSPanel / NSWindow configuration and work across normal macOS full-screen applications.
 
+General Space acceptance criteria:
+
+1. Pin ON: switching to any desktop Space keeps the timer visible.
+2. Pin ON: entering or switching to a supported full-screen application Space keeps the timer above that application.
+3. Pin OFF: the timer returns to normal managed-window behavior and does not follow into other Spaces.
+4. Space transitions reuse one panel and never create duplicates.
+5. Space transitions never pause, reset, finish, or otherwise alter any task timer.
+
 Commit:
 
 `feat: add floating timer panel`
@@ -1390,11 +1417,11 @@ Commit:
 
 Add task list and task switching.
 
-Enforce:
+Support:
 
-`maximumRunningTasks = 1`
-
-unless multi-timer mode is enabled later.
+- any number of unfinished tasks running simultaneously
+- independent timing state and controls for every task
+- restoration of every running and paused task after relaunch
 
 Commit:
 
@@ -1849,7 +1876,8 @@ The product is ready for beta when all of the following are true:
 - floating mode can be toggled with Pin
 - multiple unfinished tasks are supported
 - task switching works
-- only one task runs by default
+- multiple tasks can run simultaneously and independently
+- all running tasks recover accurately after relaunch
 - completed sessions appear in history
 - menu bar shows current timer
 - no known data-loss bug exists

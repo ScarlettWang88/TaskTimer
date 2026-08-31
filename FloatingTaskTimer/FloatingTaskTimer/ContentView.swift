@@ -1,239 +1,354 @@
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var windowManager: WindowManager
-    @State private var session = TaskSession(name: "")
-    @State private var hasRestoredSession = false
+    @State private var taskStore: TaskStore?
+    @State private var newTaskName = ""
+    @State private var isCreatingTask = false
     @State private var persistenceErrorMessage: String?
 
-    private let timerEngine = TimerEngine()
-
     var body: some View {
-        VStack(spacing: 28) {
-            header
-            timerDisplay
-            controls
+        VStack(spacing: 20) {
+            titleBar
 
-            if session.status == .completed {
-                Divider()
-                completionSummary
+            if let taskStore {
+                if let activeTask = taskStore.activeTask {
+                    currentTask(taskStore: taskStore, task: activeTask)
+
+                    if !taskStore.otherTasks.isEmpty {
+                        Divider()
+                        otherTasks(taskStore: taskStore)
+                    }
+                } else {
+                    emptyTaskState
+                }
+
+                if let completed = taskStore.lastCompletedTask {
+                    Divider()
+                    completionSummary(completed)
+                }
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(32)
-        .frame(minWidth: 440, idealWidth: 500, minHeight: 330)
-        .task(restoreSession)
+        .padding(24)
+        .frame(minWidth: 460, idealWidth: 520, minHeight: 390)
+        .task(restoreTasks)
+        .sheet(isPresented: $isCreatingTask) {
+            newTaskSheet
+        }
         .alert("Persistence Error", isPresented: persistenceErrorIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(persistenceErrorMessage ?? "The task could not be saved.")
+            Text(persistenceErrorMessage ?? "The tasks could not be saved.")
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var titleBar: some View {
+        HStack {
+            Text("Tasks")
+                .font(.headline)
+
+            Spacer()
+
+            Button {
+                newTaskName = ""
+                isCreatingTask = true
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .help("New Task")
+            .accessibilityLabel("New Task")
+
+            Button {
+                windowManager.setPinned(!windowManager.isPinned)
+            } label: {
+                Image(systemName: windowManager.isPinned ? "pin.fill" : "pin")
+            }
+            .buttonStyle(.plain)
+            .help(windowManager.isPinned ? "Disable Always on Top" : "Keep Timer on Top")
+            .accessibilityLabel(
+                windowManager.isPinned ? "Disable Always on Top" : "Keep Timer on Top"
+            )
+        }
+    }
+
+    private func currentTask(taskStore: TaskStore, task: TaskSession) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Task")
-                    .font(.headline)
+                Text("CURRENT")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
                 Spacer()
 
-                Button {
-                    windowManager.setPinned(!windowManager.isPinned)
+                Button(role: .destructive) {
+                    perform { try taskStore.delete(taskID: task.id) }
                 } label: {
-                    Image(systemName: windowManager.isPinned ? "pin.fill" : "pin")
+                    Image(systemName: "trash")
                 }
-                .buttonStyle(.plain)
-                .help(windowManager.isPinned ? "Disable Always on Top" : "Keep Timer on Top")
-                .accessibilityLabel(
-                    windowManager.isPinned ? "Disable Always on Top" : "Keep Timer on Top"
-                )
+                .buttonStyle(.borderless)
+                .help("Delete Current Task")
+                .accessibilityLabel("Delete Current Task")
             }
 
-            TextField("What are you working on?", text: $session.name)
+            TextField("What are you working on?", text: taskNameBinding(taskStore, task.id))
                 .textFieldStyle(.roundedBorder)
-                .disabled(session.status != .idle || !hasRestoredSession)
-                .onSubmit(start)
-                .onChange(of: session.name) {
-                    guard hasRestoredSession, session.status == .idle else { return }
-                    persistSession()
+                .disabled(task.status != .idle)
+                .onSubmit { perform { try taskStore.startOrResume(taskID: task.id) } }
+                .accessibilityLabel("Current task name")
+
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                Text(formattedDuration(taskStore.duration(for: task)))
+                    .font(.system(size: 52, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("Elapsed time")
+                    .accessibilityValue(formattedDuration(taskStore.duration(for: task)))
+            }
+
+            HStack(spacing: 12) {
+                Button("Start") {
+                    perform { try taskStore.startOrResume(taskID: task.id) }
                 }
-                .accessibilityLabel("Task name")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var timerDisplay: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            let duration = formattedDuration(timerEngine.currentDuration(for: session))
-
-            Text(duration)
-                .font(.system(size: 56, weight: .medium, design: .rounded))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .accessibilityLabel("Elapsed time")
-                .accessibilityValue(duration)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var controls: some View {
-        HStack(spacing: 12) {
-            Button("Start", action: start)
                 .keyboardShortcut(.defaultAction)
-                .disabled(session.status != .idle || !hasRestoredSession)
+                .disabled(task.status != .idle)
 
-            Button(pauseResumeTitle, action: pauseOrResume)
-                .disabled(
-                    !hasRestoredSession
-                        || (session.status != .running && session.status != .paused)
-                )
+                Button(task.status == .paused ? "Resume" : "Pause") {
+                    if task.status == .paused {
+                        perform { try taskStore.startOrResume(taskID: task.id) }
+                    } else {
+                        perform { try taskStore.pause(taskID: task.id) }
+                    }
+                }
+                .disabled(task.status != .running && task.status != .paused)
 
-            Button("Reset", action: reset)
-                .disabled(
-                    !hasRestoredSession
-                        || session.status == .idle
-                        || session.status == .completed
-                )
+                Button("Reset") {
+                    perform { try taskStore.reset(taskID: task.id) }
+                }
+                .disabled(task.status == .idle)
 
-            Button("Finish", action: finish)
-                .disabled(
-                    !hasRestoredSession
-                        || (session.status != .running && session.status != .paused)
-                )
+                Button("Finish") {
+                    perform { try taskStore.finish(taskID: task.id) }
+                }
+                .disabled(task.status != .running && task.status != .paused)
+            }
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
         }
-        .controlSize(.large)
     }
 
-    private var completionSummary: some View {
-        VStack(spacing: 18) {
-            Text("Task Complete")
+    private func otherTasks(taskStore: TaskStore) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("OTHER TASKS")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(taskStore.otherTasks) { task in
+                            taskRow(taskStore: taskStore, task: task)
+                        }
+                    }
+                }
+                .frame(maxHeight: 180)
+            }
+        }
+    }
+
+    private var emptyTaskState: some View {
+        VStack(spacing: 12) {
+            Text("No Unfinished Tasks")
+                .font(.title3.weight(.semibold))
+            Button("New Task") {
+                newTaskName = ""
+                isCreatingTask = true
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 160)
+    }
+
+    private func taskRow(taskStore: TaskStore, task: TaskSession) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                perform { try taskStore.selectTask(id: task.id) }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(task.name.isEmpty ? "Untitled Task" : task.name)
+                            .lineLimit(1)
+                        Text(statusLabel(task.status))
+                            .font(.caption)
+                            .foregroundStyle(statusColor(task.status))
+                    }
+
+                    Spacer()
+
+                    Text(formattedDuration(taskStore.duration(for: task)))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                if task.status == .running {
+                    perform { try taskStore.pause(taskID: task.id) }
+                } else {
+                    perform { try taskStore.startOrResume(taskID: task.id) }
+                }
+            } label: {
+                Image(systemName: task.status == .running ? "pause.fill" : "play.fill")
+            }
+            .buttonStyle(.borderless)
+            .help(task.status == .running ? "Pause Task" : task.status == .paused ? "Resume Task" : "Start Task")
+
+            Button {
+                perform { try taskStore.reset(taskID: task.id) }
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .disabled(task.status == .idle)
+            .help("Reset Task")
+
+            Button {
+                perform { try taskStore.finish(taskID: task.id) }
+            } label: {
+                Image(systemName: "checkmark")
+            }
+            .buttonStyle(.borderless)
+            .disabled(task.status == .idle)
+            .help("Finish Task")
+
+            Button(role: .destructive) {
+                perform { try taskStore.delete(taskID: task.id) }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete Task")
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func completionSummary(_ session: TaskSession) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Completed")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(session.name)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(formattedDuration(session.accumulatedActiveDuration))
+                .monospacedDigit()
+        }
+    }
+
+    private var newTaskSheet: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("New Task")
                 .font(.title2.weight(.semibold))
 
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
-                summaryRow("Task", value: session.name)
-                summaryRow("Active Time", value: formattedDuration(session.accumulatedActiveDuration))
-                summaryRow("Paused Time", value: formattedDuration(session.accumulatedPausedDuration))
+            TextField("Task name", text: $newTaskName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { createTask(startImmediately: true) }
 
-                if let firstStartedAt = session.firstStartedAt {
-                    summaryRow("Started", value: firstStartedAt.formatted(date: .omitted, time: .shortened))
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    isCreatingTask = false
                 }
-
-                if let completedAt = session.completedAt {
-                    summaryRow("Finished", value: completedAt.formatted(date: .omitted, time: .shortened))
+                Button("Create") {
+                    createTask(startImmediately: false)
                 }
+                Button("Create & Start") {
+                    createTask(startImmediately: true)
+                }
+                .keyboardShortcut(.defaultAction)
             }
-
-            Button("Start Another Task", action: startAnotherTask)
-                .controlSize(.large)
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var pauseResumeTitle: String {
-        session.status == .paused ? "Resume" : "Pause"
+        .padding(24)
+        .frame(width: 380)
     }
 
     private var persistenceErrorIsPresented: Binding<Bool> {
         Binding(
             get: { persistenceErrorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    persistenceErrorMessage = nil
-                }
-            }
+            set: { if !$0 { persistenceErrorMessage = nil } }
         )
     }
 
-    @ViewBuilder
-    private func summaryRow(_ label: String, value: String) -> some View {
-        GridRow {
-            Text(label)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .textSelection(.enabled)
-        }
+    private func taskNameBinding(_ store: TaskStore, _ taskID: UUID) -> Binding<String> {
+        Binding(
+            get: { store.tasks.first(where: { $0.id == taskID })?.name ?? "" },
+            set: { newValue in perform { try store.rename(taskID: taskID, name: newValue) } }
+        )
     }
 
-    private func start() {
-        guard session.status == .idle else { return }
-
-        let trimmedName = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        session.name = trimmedName.isEmpty ? "Untitled Task" : trimmedName
-        if timerEngine.start(&session) {
-            persistSession()
-        }
+    private func createTask(startImmediately: Bool) {
+        guard let taskStore else { return }
+        perform { try taskStore.createTask(name: newTaskName, startImmediately: startImmediately) }
+        isCreatingTask = false
+        newTaskName = ""
     }
 
-    private func pauseOrResume() {
-        switch session.status {
-        case .running:
-            if timerEngine.pause(&session) {
-                persistSession()
-            }
-        case .paused:
-            if timerEngine.resume(&session) {
-                persistSession()
-            }
-        case .idle, .completed:
-            break
-        }
-    }
-
-    private func reset() {
-        if timerEngine.reset(&session) {
-            persistSession()
-        }
-    }
-
-    private func finish() {
-        if timerEngine.finish(&session) {
-            persistSession()
-        }
-    }
-
-    private func startAnotherTask() {
-        session = TaskSession(name: "")
-        persistSession()
-    }
-
-    private func restoreSession() {
-        guard !hasRestoredSession else { return }
-
+    private func restoreTasks() {
+        guard taskStore == nil else { return }
         do {
-            let store = TaskSessionStore(modelContext: modelContext)
-            if let restoredSession = try store.load() {
-                session = restoredSession
-            } else {
-                try store.save(session)
-            }
+            taskStore = try TaskStore(
+                persistence: TaskSessionStore(modelContext: modelContext)
+            )
         } catch {
-            persistenceErrorMessage = "The saved task could not be restored. Changes may not survive relaunch."
+            persistenceErrorMessage = "Saved tasks could not be restored. Changes may not survive relaunch."
         }
-
-        hasRestoredSession = true
     }
 
-    private func persistSession() {
+    private func perform(_ operation: () throws -> Void) {
         do {
-            try TaskSessionStore(modelContext: modelContext).save(session)
+            try operation()
         } catch {
-            persistenceErrorMessage = "The current task could not be saved. Changes may not survive relaunch."
+            persistenceErrorMessage = "The task change could not be saved."
         }
+    }
+
+    private func statusLabel(_ status: TaskStatus) -> String {
+        switch status {
+        case .idle: "Idle"
+        case .running: "Running"
+        case .paused: "Paused"
+        case .completed: "Completed"
+        }
+    }
+
+    private func statusColor(_ status: TaskStatus) -> Color {
+        status == .running ? .green : .secondary
     }
 
     private func formattedDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = max(0, Int(duration.rounded(.down)))
-        let hours = totalSeconds / 3_600
-        let minutes = (totalSeconds % 3_600) / 60
-        let seconds = totalSeconds % 60
-
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        return String(
+            format: "%02d:%02d:%02d",
+            totalSeconds / 3_600,
+            (totalSeconds % 3_600) / 60,
+            totalSeconds % 60
+        )
     }
 }
 
 #Preview {
     ContentView(windowManager: WindowManager())
-        .modelContainer(for: PersistedTaskSession.self, inMemory: true)
+        .modelContainer(
+            for: [PersistedTaskSession.self, PersistedTaskStoreState.self],
+            inMemory: true
+        )
 }

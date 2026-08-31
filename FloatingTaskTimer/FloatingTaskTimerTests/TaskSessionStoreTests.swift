@@ -12,9 +12,9 @@ struct TaskSessionStoreTests {
         let original = makeSession(status: status)
 
         try TaskSessionStore(modelContext: ModelContext(container)).save(original)
-        let restored = try TaskSessionStore(modelContext: ModelContext(container)).load()
+        let restored = try TaskSessionStore(modelContext: ModelContext(container)).load().sessions
 
-        #expect(restored == original)
+        #expect(restored == [original])
     }
 
     @Test("A restored running session continues from its stored timestamp")
@@ -23,10 +23,10 @@ struct TaskSessionStoreTests {
         let original = makeSession(status: .running)
         try TaskSessionStore(modelContext: ModelContext(container)).save(original)
 
-        let loadedSession = try TaskSessionStore(
+        let loadedSessions = try TaskSessionStore(
             modelContext: ModelContext(container)
-        ).load()
-        let restored = try #require(loadedSession)
+        ).load().sessions
+        let restored = try #require(loadedSessions.first)
         let clock = StoreTestTimeProvider(
             now: try #require(restored.lastResumedAt).addingTimeInterval(45)
         )
@@ -40,28 +40,33 @@ struct TaskSessionStoreTests {
         let original = makeSession(status: .paused)
         try TaskSessionStore(modelContext: ModelContext(container)).save(original)
 
-        let loadedSession = try TaskSessionStore(
+        let loadedSessions = try TaskSessionStore(
             modelContext: ModelContext(container)
-        ).load()
-        let restored = try #require(loadedSession)
+        ).load().sessions
+        let restored = try #require(loadedSessions.first)
         let clock = StoreTestTimeProvider(now: Date(timeIntervalSince1970: 50_000))
 
         #expect(TimerEngine(timeProvider: clock).currentDuration(for: restored) == 30)
     }
 
-    @Test("Saving replaces the current session instead of duplicating it")
-    func maintainsOneCurrentSession() throws {
+    @Test("Saving maintains multiple sessions and updates by ID")
+    func maintainsMultipleSessions() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         let store = TaskSessionStore(modelContext: context)
 
-        try store.save(makeSession(status: .running))
-        let resetSession = TaskSession(name: "Reset", createdAt: referenceDate)
-        try store.save(resetSession)
+        let running = makeSession(status: .running)
+        let idle = TaskSession(name: "Idle 2", createdAt: referenceDate)
+        try store.save(running)
+        try store.save(idle)
+        var updated = running
+        updated.name = "Updated"
+        try store.save(updated)
 
         let records = try context.fetch(FetchDescriptor<PersistedTaskSession>())
-        #expect(records.count == 1)
-        #expect(try store.load() == resetSession)
+        #expect(records.count == 2)
+        #expect(Set(try store.load().sessions.map(\.id)) == Set([running.id, idle.id]))
+        #expect(try store.load().sessions.first(where: { $0.id == running.id })?.name == "Updated")
     }
 
     @Test("A reset session restores as idle with zero durations")
@@ -74,7 +79,7 @@ struct TaskSessionStoreTests {
         #expect(engine.reset(&session))
 
         try TaskSessionStore(modelContext: ModelContext(container)).save(session)
-        let restored = try TaskSessionStore(modelContext: ModelContext(container)).load()
+        let restored = try TaskSessionStore(modelContext: ModelContext(container)).load().sessions.first
 
         #expect(restored?.status == .idle)
         #expect(restored?.accumulatedActiveDuration == 0)
@@ -92,9 +97,9 @@ struct TaskSessionStoreTests {
         context.insert(record)
         try context.save()
 
-        let restored = try TaskSessionStore(modelContext: ModelContext(container)).load()
+        let restored = try TaskSessionStore(modelContext: ModelContext(container)).load().sessions
 
-        #expect(restored == nil)
+        #expect(restored.isEmpty)
     }
 
     private var referenceDate: Date {
@@ -104,7 +109,7 @@ struct TaskSessionStoreTests {
     private func makeContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(
-            for: PersistedTaskSession.self,
+            for: PersistedTaskSession.self, PersistedTaskStoreState.self,
             configurations: configuration
         )
     }

@@ -1,6 +1,5 @@
 import AppKit
 import Observation
-import SwiftData
 import SwiftUI
 
 @MainActor
@@ -13,16 +12,24 @@ final class WindowManager: NSObject, NSWindowDelegate {
         .stationary,
     ]
     static let unpinnedCollectionBehavior: NSWindow.CollectionBehavior = [.managed]
+    static let summonedUnpinnedCollectionBehavior: NSWindow.CollectionBehavior = [.moveToActiveSpace]
 
     private(set) var isPinned: Bool
 
     @ObservationIgnored private let userDefaults: UserDefaults
-    @ObservationIgnored private var modelContainer: ModelContainer?
+    @ObservationIgnored private let taskStore: TaskStore?
+    @ObservationIgnored private let navigation: AppNavigation
     @ObservationIgnored private var panel: NSPanel?
 
     private let frameAutosaveName = "FloatingTimerPanelFrame"
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(
+        taskStore: TaskStore? = nil,
+        navigation: AppNavigation,
+        userDefaults: UserDefaults = .standard
+    ) {
+        self.taskStore = taskStore
+        self.navigation = navigation
         self.userDefaults = userDefaults
         isPinned = userDefaults.bool(forKey: Self.pinnedPreferenceKey)
         super.init()
@@ -35,18 +42,47 @@ final class WindowManager: NSObject, NSWindowDelegate {
         )
     }
 
-    func showWindow(modelContainer: ModelContainer? = nil) {
-        if let modelContainer {
-            self.modelContainer = modelContainer
-        }
+    convenience init(userDefaults: UserDefaults = .standard) {
+        self.init(taskStore: nil, navigation: AppNavigation(), userDefaults: userDefaults)
+    }
 
+    func showWindow() {
         if panel == nil {
-            guard let modelContainer = self.modelContainer else { return }
-            panel = makePanel(modelContainer: modelContainer)
+            guard let taskStore else { return }
+            panel = makePanel(taskStore: taskStore)
         }
 
         applyWindowBehavior()
         panel?.makeKeyAndOrderFront(nil)
+    }
+
+    func showHistory() {
+        navigation.selectedPage = .history
+        showWindowOnCurrentSpace()
+    }
+
+    func showWindowOnCurrentSpace() {
+        if panel == nil {
+            guard let taskStore else { return }
+            panel = makePanel(taskStore: taskStore)
+        }
+        guard let panel else { return }
+
+        if isPinned {
+            applyWindowBehavior()
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        panel.level = .normal
+        panel.collectionBehavior = Self.summonedUnpinnedCollectionBehavior
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak panel] in
+            guard let self, let panel, !self.isPinned else { return }
+            panel.collectionBehavior = Self.unpinnedCollectionBehavior
+        }
     }
 
     func setPinned(_ pinned: Bool) {
@@ -57,7 +93,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         applyWindowBehavior()
     }
 
-    private func makePanel(modelContainer: ModelContainer) -> NSPanel {
+    private func makePanel(taskStore: TaskStore) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [
@@ -85,8 +121,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.standardWindowButton(.zoomButton)?.isHidden = true
 
-        let rootView = ContentView(windowManager: self)
-            .modelContainer(modelContainer)
+        let rootView = ContentView(
+            taskStore: taskStore,
+            windowManager: self,
+            navigation: navigation
+        )
         panel.contentViewController = NSHostingController(rootView: rootView)
 
         restoreFrame(for: panel)

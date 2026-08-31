@@ -32,6 +32,13 @@ final class TaskStore {
         tasks.filter { $0.id != activeTaskID }
     }
 
+    var menuBarTask: TaskSession? {
+        if let activeTask, activeTask.status == .running {
+            return activeTask
+        }
+        return tasks.first(where: { $0.status == .running }) ?? activeTask
+    }
+
     var lastCompletedTask: TaskSession? {
         history.first
     }

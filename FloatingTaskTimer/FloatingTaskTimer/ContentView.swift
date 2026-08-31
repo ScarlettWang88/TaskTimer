@@ -1,54 +1,53 @@
-import SwiftData
+import Observation
 import SwiftUI
 
-private enum MainPage: String, CaseIterable, Identifiable {
+enum MainPage: String, CaseIterable, Identifiable {
     case tasks = "Tasks"
     case history = "History"
 
     var id: Self { self }
 }
 
+@MainActor
+@Observable
+final class AppNavigation {
+    var selectedPage = MainPage.tasks
+}
+
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Bindable var taskStore: TaskStore
     @Bindable var windowManager: WindowManager
-    @State private var taskStore: TaskStore?
+    @Bindable var navigation: AppNavigation
     @State private var newTaskName = ""
     @State private var isCreatingTask = false
-    @State private var selectedPage = MainPage.tasks
     @State private var persistenceErrorMessage: String?
 
     var body: some View {
         VStack(spacing: 20) {
             titleBar
 
-            if let taskStore {
-                if selectedPage == .history {
-                    HistoryView(taskStore: taskStore)
-                } else {
-                    if let activeTask = taskStore.activeTask {
-                        currentTask(taskStore: taskStore, task: activeTask)
-
-                        if !taskStore.otherTasks.isEmpty {
-                            Divider()
-                            otherTasks(taskStore: taskStore)
-                        }
-                    } else {
-                        emptyTaskState
-                    }
-
-                    if let completed = taskStore.lastCompletedTask {
-                        Divider()
-                        completionSummary(completed)
-                    }
-                }
+            if navigation.selectedPage == .history {
+                HistoryView(taskStore: taskStore)
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let activeTask = taskStore.activeTask {
+                    currentTask(taskStore: taskStore, task: activeTask)
+
+                    if !taskStore.otherTasks.isEmpty {
+                        Divider()
+                        otherTasks(taskStore: taskStore)
+                    }
+                } else {
+                    emptyTaskState
+                }
+
+                if let completed = taskStore.lastCompletedTask {
+                    Divider()
+                    completionSummary(completed)
+                }
             }
         }
         .padding(24)
         .frame(minWidth: 460, idealWidth: 520, minHeight: 390)
-        .task(restoreTasks)
         .sheet(isPresented: $isCreatingTask) {
             newTaskSheet
         }
@@ -61,7 +60,7 @@ struct ContentView: View {
 
     private var titleBar: some View {
         HStack {
-            Picker("Page", selection: $selectedPage) {
+            Picker("Page", selection: $navigation.selectedPage) {
                 ForEach(MainPage.allCases) { page in
                     Text(page.rawValue).tag(page)
                 }
@@ -71,7 +70,7 @@ struct ContentView: View {
 
             Spacer()
 
-            if selectedPage == .tasks {
+            if navigation.selectedPage == .tasks {
                 Button {
                     newTaskName = ""
                     isCreatingTask = true
@@ -315,21 +314,9 @@ struct ContentView: View {
     }
 
     private func createTask(startImmediately: Bool) {
-        guard let taskStore else { return }
         perform { try taskStore.createTask(name: newTaskName, startImmediately: startImmediately) }
         isCreatingTask = false
         newTaskName = ""
-    }
-
-    private func restoreTasks() {
-        guard taskStore == nil else { return }
-        do {
-            taskStore = try TaskStore(
-                persistence: TaskSessionStore(modelContext: modelContext)
-            )
-        } catch {
-            persistenceErrorMessage = "Saved tasks could not be restored. Changes may not survive relaunch."
-        }
     }
 
     private func perform(_ operation: () throws -> Void) {
@@ -353,12 +340,4 @@ struct ContentView: View {
         status == .running ? .green : .secondary
     }
 
-}
-
-#Preview {
-    ContentView(windowManager: WindowManager())
-        .modelContainer(
-            for: [PersistedTaskSession.self, PersistedTaskStoreState.self],
-            inMemory: true
-        )
 }

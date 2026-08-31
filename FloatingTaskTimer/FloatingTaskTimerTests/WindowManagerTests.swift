@@ -48,4 +48,13 @@ struct WindowManagerTests {
         #expect(!behavior.contains(.stationary))
         #expect(!behavior.contains(.fullScreenAuxiliary))
     }
+
+    @Test("Explicitly summoned unpinned window moves to the active Space")
+    func summonedUnpinnedWindowCollectionBehavior() {
+        let behavior = WindowManager.summonedUnpinnedCollectionBehavior
+
+        #expect(behavior == [.moveToActiveSpace])
+        #expect(!behavior.contains(.canJoinAllSpaces))
+        #expect(!behavior.contains(.fullScreenAuxiliary))
+    }
 }

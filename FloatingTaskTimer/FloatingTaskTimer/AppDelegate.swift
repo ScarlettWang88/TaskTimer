@@ -9,12 +9,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         category: "Persistence"
     )
 
-    private var windowManager: WindowManager?
+    let modelContainer: ModelContainer
+    let taskStore: TaskStore
+    let navigation: AppNavigation
+    let windowManager: WindowManager
+
+    override init() {
+        let environment = Self.makeEnvironment()
+        modelContainer = environment.container
+        taskStore = environment.store
+        navigation = AppNavigation()
+        windowManager = WindowManager(taskStore: taskStore, navigation: navigation)
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let windowManager = WindowManager()
-        self.windowManager = windowManager
-        windowManager.showWindow(modelContainer: makeModelContainer())
+        windowManager.showWindow()
     }
 
     func applicationShouldHandleReopen(
@@ -22,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hasVisibleWindows flag: Bool
     ) -> Bool {
         if !flag {
-            windowManager?.showWindow()
+            windowManager.showWindow()
         }
         return true
     }
@@ -31,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    private func makeModelContainer() -> ModelContainer {
+    private static func makeEnvironment() -> (container: ModelContainer, store: TaskStore) {
         let schema = Schema([
             PersistedTaskSession.self,
             PersistedTaskStoreState.self,
@@ -43,7 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let store = try TaskStore(persistence: TaskSessionStore(modelContext: container.mainContext))
+            return (container, store)
         } catch {
             Self.logger.error(
                 "Could not open the persistent store: \(error.localizedDescription, privacy: .public)"
@@ -55,9 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     schema: schema,
                     isStoredInMemoryOnly: true
                 )
-                return try ModelContainer(for: schema, configurations: [fallbackConfiguration])
+                let container = try ModelContainer(for: schema, configurations: [fallbackConfiguration])
+                let store = try TaskStore(persistence: TaskSessionStore(modelContext: container.mainContext))
+                return (container, store)
             } catch {
-                fatalError("Could not create fallback ModelContainer: \(error)")
+                fatalError("Could not create fallback application environment: \(error)")
             }
         }
     }

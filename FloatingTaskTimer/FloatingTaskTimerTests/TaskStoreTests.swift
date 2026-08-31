@@ -138,6 +138,43 @@ struct TaskStoreTests {
         #expect(store.tasks.first { $0.id == secondID }?.status == .paused)
     }
 
+    @Test("Menu bar prefers the active task when it is running")
+    func menuBarPrefersRunningActiveTask() throws {
+        let (store, _, firstID) = try makeNamedStore()
+        let secondID = try store.createTask(name: "Second", startImmediately: true)
+        #expect(try store.startOrResume(taskID: firstID))
+        try store.selectTask(id: secondID)
+
+        #expect(store.menuBarTask?.id == secondID)
+    }
+
+    @Test("Menu bar falls back to a running task when the active task is paused")
+    func menuBarFallsBackToRunningTask() throws {
+        let (store, _, firstID) = try makeNamedStore()
+        let secondID = try store.createTask(name: "Second", startImmediately: true)
+        #expect(try store.startOrResume(taskID: firstID))
+        #expect(try store.pause(taskID: secondID))
+        try store.selectTask(id: secondID)
+
+        #expect(store.activeTaskID == secondID)
+        #expect(store.menuBarTask?.id == firstID)
+    }
+
+    @Test("Menu bar actions mutate the same store without affecting another timer")
+    func menuBarSharedStoreActionsRemainIndependent() throws {
+        let (store, clock, firstID) = try makeNamedStore()
+        let secondID = try store.createTask(name: "Second", startImmediately: true)
+        #expect(try store.startOrResume(taskID: firstID))
+        clock.advance(by: 12)
+
+        #expect(try store.pause(taskID: firstID))
+        clock.advance(by: 8)
+
+        let second = try #require(store.tasks.first { $0.id == secondID })
+        #expect(second.status == .running)
+        #expect(store.duration(for: second) == 20)
+    }
+
     @Test("Completed active intervals are retained for future overlap analytics")
     func retainsActiveIntervals() throws {
         let (store, clock, firstID) = try makeNamedStore()
